@@ -49,7 +49,7 @@ create table if not exists public.admin_action_log (
   created_at timestamptz not null default now()
 );
 
--- Demo wallet balances are fictional test credits; these identifiers are not deposit addresses.
+-- Virtual wallet balances are simulated credits; these IDs are not deposit addresses.
 create table if not exists public.demo_wallets (
   user_id uuid not null references auth.users(id) on delete cascade,
   asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC')),
@@ -89,7 +89,8 @@ create table if not exists public.demo_withdrawals (
 
 alter table public.admin_action_log drop constraint if exists admin_action_log_action_check;
 alter table public.admin_action_log add constraint admin_action_log_action_check
-  check (action in ('restricted','suspended','activated','demo_funding','withdrawal_paused','withdrawal_unpaused','withdrawal_hold','withdrawal_release','withdrawal_approved','withdrawal_rejected'));
+  check (action in ('restricted','suspended','activated','demo_funding','virtual_funding','withdrawal_paused','withdrawal_unpaused','withdrawal_hold','withdrawal_release','withdrawal_approved','withdrawal_rejected'));
+update public.admin_action_log set action='virtual_funding' where action='demo_funding';
 
 create index if not exists watchlist_user_id_idx on public.watchlist(user_id);
 create index if not exists admin_action_log_created_at_idx on public.admin_action_log(created_at desc);
@@ -171,7 +172,7 @@ begin
   values (new.id, coalesce(new.raw_user_meta_data ->> 'display_name', ''))
   on conflict (id) do nothing;
   insert into public.demo_wallets (user_id, asset, demo_address)
-  select new.id, a.asset, 'DEMO-' || a.asset || '-' || upper(substr(replace(new.id::text, '-', ''), 1, 12))
+  select new.id, a.asset, 'VIRTUAL-' || a.asset || '-' || upper(substr(replace(new.id::text, '-', ''), 1, 12))
   from (values ('BTC'),('ETH'),('SOL'),('BNB'),('XRP'),('DOGE'),('ADA'),('AVAX'),('LINK'),('DOT'),('TRX'),('LTC')) as a(asset)
   on conflict (user_id, asset) do nothing;
   return new;
@@ -192,14 +193,21 @@ revoke insert, update, delete on public.user_roles, public.account_controls from
 revoke insert, update, delete on public.demo_wallets, public.demo_wallet_ledger, public.demo_withdrawals from anon, authenticated;
 revoke all on public.admin_action_log from anon, authenticated;
 
--- Provision clearly fake, non-spendable demo identifiers for current and new users.
+-- Provision display-only virtual wallet IDs for current and new users.
 insert into public.demo_wallets (user_id, asset, demo_address)
-select u.id, a.asset, 'DEMO-' || a.asset || '-' || upper(substr(replace(u.id::text, '-', ''), 1, 12))
+select u.id, a.asset, 'VIRTUAL-' || a.asset || '-' || upper(substr(replace(u.id::text, '-', ''), 1, 12))
 from auth.users u
 cross join (values ('BTC'),('ETH'),('SOL'),('BNB'),('XRP'),('DOGE'),('ADA'),('AVAX'),('LINK'),('DOT'),('TRX'),('LTC')) as a(asset)
 on conflict (user_id, asset) do nothing;
 
--- Make conversions atomic and keep all demo balance changes in the ledger.
+update public.demo_wallets
+set demo_address = 'VIRTUAL-' || asset || '-' || upper(substr(replace(user_id::text, '-', ''), 1, 12))
+where demo_address like 'DEMO-%';
+update public.demo_wallet_ledger
+set note = regexp_replace(note, 'demo', 'virtual', 'gi')
+where note ilike '%demo%';
+
+-- Make conversions atomic and keep all virtual balance changes in the ledger.
 create or replace function public.demo_convert(
   p_from_asset text,
   p_to_asset text,
@@ -217,11 +225,11 @@ declare
   v_reference uuid := gen_random_uuid();
 begin
   if v_user is null then raise exception 'Sign in is required.'; end if;
-  if public.current_account_status() <> 'active' then raise exception 'Account must be active to convert demo balances.'; end if;
+  if public.current_account_status() <> 'active' then raise exception 'Account must be active to convert virtual balances.'; end if;
   if p_from_asset = p_to_asset then raise exception 'Choose two different assets.'; end if;
   if p_from_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC')
      or p_to_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC') then
-    raise exception 'Unsupported demo asset.';
+    raise exception 'Unsupported virtual asset.';
   end if;
   if p_from_amount is null or p_from_amount <= 0 or p_exchange_rate is null or p_exchange_rate <= 0 then
     raise exception 'Enter a positive amount and quote.';
@@ -236,15 +244,15 @@ begin
   update public.demo_wallets
     set available = available - p_from_amount, updated_at = now()
     where user_id = v_user and asset = p_from_asset and available >= p_from_amount;
-  if not found then raise exception 'Insufficient available demo balance.'; end if;
+  if not found then raise exception 'Insufficient available virtual balance.'; end if;
   update public.demo_wallets
     set available = available + v_to_amount, updated_at = now()
     where user_id = v_user and asset = p_to_asset;
   if not found then raise exception 'Demo wallet for the target asset is not available.'; end if;
 
   insert into public.demo_wallet_ledger (user_id,asset,available_delta,entry_type,reference_id,note,created_by)
-  values (v_user,p_from_asset,-p_from_amount,'conversion_out',v_reference,'Demo conversion; 0.5% simulated fee',v_user),
-         (v_user,p_to_asset,v_to_amount,'conversion_in',v_reference,'Demo conversion; 0.5% simulated fee',v_user);
+  values (v_user,p_from_asset,-p_from_amount,'conversion_out',v_reference,'Virtual conversion; 0.5% simulated fee',v_user),
+         (v_user,p_to_asset,v_to_amount,'conversion_in',v_reference,'Virtual conversion; 0.5% simulated fee',v_user);
   return v_to_amount;
 end;
 $$;
@@ -265,21 +273,21 @@ declare
   v_paused boolean;
 begin
   if v_user is null then raise exception 'Sign in is required.'; end if;
-  if public.current_account_status() <> 'active' then raise exception 'Account must be active to request a demo withdrawal.'; end if;
+  if public.current_account_status() <> 'active' then raise exception 'Account must be active to request a virtual withdrawal.'; end if;
   select coalesce((select ac.withdrawals_paused from public.account_controls ac where ac.user_id = v_user), false) into v_paused;
-  if v_paused then raise exception 'Demo withdrawals are paused for this account.'; end if;
-  if p_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC') then raise exception 'Unsupported demo asset.'; end if;
+  if v_paused then raise exception 'Virtual withdrawals are paused for this account.'; end if;
+  if p_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC') then raise exception 'Unsupported virtual asset.'; end if;
   if p_amount is null or p_amount <= 0 then raise exception 'Enter a positive amount.'; end if;
   if p_destination is null or char_length(trim(p_destination)) not between 4 and 200 then raise exception 'Enter a destination label between 4 and 200 characters.'; end if;
 
   update public.demo_wallets
     set available = available - p_amount, held = held + p_amount, updated_at = now()
     where user_id = v_user and asset = p_asset and available >= p_amount;
-  if not found then raise exception 'Insufficient available demo balance.'; end if;
+  if not found then raise exception 'Insufficient available virtual balance.'; end if;
   insert into public.demo_withdrawals (id,user_id,asset,amount,destination,status)
     values (v_id,v_user,p_asset,p_amount,trim(p_destination),'pending');
   insert into public.demo_wallet_ledger (user_id,asset,available_delta,held_delta,entry_type,reference_id,note,created_by)
-    values (v_user,p_asset,-p_amount,p_amount,'withdrawal_requested',v_id,'Demo withdrawal request; no blockchain transfer',v_user);
+    values (v_user,p_asset,-p_amount,p_amount,'withdrawal_requested',v_id,'Virtual withdrawal request; no blockchain transfer',v_user);
   return v_id;
 end;
 $$;
@@ -287,7 +295,7 @@ revoke all on function public.demo_request_withdrawal(text,numeric,text) from pu
 revoke all on function public.demo_request_withdrawal(text,numeric,text) from anon;
 grant execute on function public.demo_request_withdrawal(text,numeric,text) to authenticated;
 
--- Privileged demo operations are callable only by the service role from the checked Edge Function.
+-- Privileged virtual wallet operations are callable only by the service role from the checked Edge Function.
 create or replace function public.admin_fund_demo_wallet(p_admin_id uuid,p_user_id uuid,p_asset text,p_amount numeric,p_reason text)
 returns void
 language plpgsql
@@ -296,15 +304,15 @@ set search_path = ''
 as $$
 begin
   if (select auth.role()) <> 'service_role' then raise exception 'Service role required.'; end if;
-  if p_amount is null or p_amount <= 0 or p_amount > 1000000000 then raise exception 'Enter a valid demo funding amount.'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount > 1000000000 then raise exception 'Enter a valid virtual funding amount.'; end if;
   if p_reason is null or char_length(trim(p_reason)) not between 3 and 500 then raise exception 'A reason between 3 and 500 characters is required.'; end if;
   update public.demo_wallets set available = available + p_amount, updated_at = now()
     where user_id = p_user_id and asset = p_asset;
-  if not found then raise exception 'Demo wallet for this asset was not found.'; end if;
+  if not found then raise exception 'Virtual wallet for this asset was not found.'; end if;
   insert into public.demo_wallet_ledger (user_id,asset,available_delta,entry_type,note,created_by)
     values (p_user_id,p_asset,p_amount,'admin_funding',trim(p_reason),p_admin_id);
   insert into public.admin_action_log (admin_id,target_user_id,action,reason)
-    values (p_admin_id,p_user_id,'demo_funding',trim(p_reason));
+    values (p_admin_id,p_user_id,'virtual_funding',trim(p_reason));
 end;
 $$;
 revoke all on function public.admin_fund_demo_wallet(uuid,uuid,text,numeric,text) from public,anon,authenticated;
@@ -325,7 +333,7 @@ begin
   if p_reason is null or char_length(trim(p_reason)) not between 3 and 500 then raise exception 'A reason between 3 and 500 characters is required.'; end if;
   select * into v_withdrawal from public.demo_withdrawals where id = p_withdrawal_id for update;
   if not found then raise exception 'Withdrawal request not found.'; end if;
-  if v_withdrawal.status not in ('pending','held') then raise exception 'This demo withdrawal is already finalized.'; end if;
+  if v_withdrawal.status not in ('pending','held') then raise exception 'This virtual withdrawal is already finalized.'; end if;
 
   if p_action = 'hold' then
     update public.demo_withdrawals set status='held',reason=trim(p_reason),updated_at=now() where id=p_withdrawal_id;
@@ -336,7 +344,7 @@ begin
   elsif p_action = 'approve' then
     update public.demo_wallets set held=held-v_withdrawal.amount,updated_at=now()
       where user_id=v_withdrawal.user_id and asset=v_withdrawal.asset and held>=v_withdrawal.amount;
-    if not found then raise exception 'Held demo balance is inconsistent.'; end if;
+    if not found then raise exception 'Held virtual balance is inconsistent.'; end if;
     update public.demo_withdrawals set status='approved',reason=trim(p_reason),updated_at=now() where id=p_withdrawal_id;
     insert into public.demo_wallet_ledger (user_id,asset,held_delta,entry_type,reference_id,note,created_by)
       values (v_withdrawal.user_id,v_withdrawal.asset,-v_withdrawal.amount,'withdrawal_approved',p_withdrawal_id,trim(p_reason),p_admin_id);
@@ -344,7 +352,7 @@ begin
   else
     update public.demo_wallets set held=held-v_withdrawal.amount,available=available+v_withdrawal.amount,updated_at=now()
       where user_id=v_withdrawal.user_id and asset=v_withdrawal.asset and held>=v_withdrawal.amount;
-    if not found then raise exception 'Held demo balance is inconsistent.'; end if;
+    if not found then raise exception 'Held virtual balance is inconsistent.'; end if;
     update public.demo_withdrawals set status='rejected',reason=trim(p_reason),updated_at=now() where id=p_withdrawal_id;
     insert into public.demo_wallet_ledger (user_id,asset,available_delta,held_delta,entry_type,reference_id,note,created_by)
       values (v_withdrawal.user_id,v_withdrawal.asset,v_withdrawal.amount,-v_withdrawal.amount,'withdrawal_rejected',p_withdrawal_id,trim(p_reason),p_admin_id);

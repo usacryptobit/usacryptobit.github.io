@@ -10,7 +10,7 @@ A responsive crypto market dashboard built with React, Vite, and Supabase. It sh
 4. In **Authentication → URL Configuration**, set **Site URL** to `https://usacryptobit.github.io/` and allow it in **Redirect URLs**. Add `http://localhost:5173/**` for local development.
 5. If you want accounts to work immediately, review **Authentication → Providers → Email** and your email confirmation settings.
 
-The SQL creates profiles, watchlists, and Virtual Wallet tables, enables row-level security, and limits each customer to their own records. Wallet units are simulated and non-redeemable; the generated `DEMO-…` identifiers are not deposit addresses.
+The SQL creates profiles, watchlists, and Virtual Wallet tables, enables row-level security, and limits each customer to their own records. Wallet units are simulated and non-redeemable; the generated `VIRTUAL-…` IDs are for display only and are not deposit addresses.
 
 ## 2. Run locally
 
@@ -63,7 +63,7 @@ The administrator area lets you search customer accounts, see account creation/l
 
 ### Install the database controls and Virtual Wallet
 
-Run the updated [`supabase/schema.sql`](supabase/schema.sql) in your project's SQL Editor. It adds protected `user_roles`, `account_controls`, and `admin_action_log` tables; customer Virtual Wallet balances, ledger, conversion and request functions; and database policies. Admin funding and request review are available only through the role-checked Edge Function. If you have already run an earlier version, run this updated script again so it adds the wallet tables and signup trigger setup.
+Run the updated [`supabase/schema.sql`](supabase/schema.sql) in your project's SQL Editor. It adds protected `user_roles`, `account_controls`, and `admin_action_log` tables; customer Virtual Wallet balances, ledger, conversion and request functions; and database policies. Admin funding and request review are available only through the role-checked Edge Function. If you have already run an earlier version, run this updated script again so it adds the wallet tables and signup trigger setup. The script also changes earlier wallet ID display values and ledger notes to use Virtual Wallet wording.
 
 ### Deploy the server-side admin function
 
@@ -99,7 +99,7 @@ Commit and push the updated site files to the `usacryptobit.github.io` repositor
 
 ### Virtual Wallet behavior
 
-- New accounts receive empty virtual asset balances and stable `DEMO-…` identifiers that are not valid blockchain addresses.
+- New accounts receive empty virtual asset balances and stable `VIRTUAL-…` IDs that are not blockchain addresses.
 - Admins can add non-redeemable virtual units, pause or resume a customer's virtual withdrawal requests, and hold, release, approve (mark processed), or reject requests.
 - Customers can convert virtual units at the displayed market quote less a simulated 0.5% fee. A conversion is an in-app practice ledger entry only.
 - Customer requests move virtual units into a held balance until reviewed. An approval never sends funds; a rejection returns the units to the available virtual balance.
