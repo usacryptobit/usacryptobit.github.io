@@ -7,7 +7,7 @@ A responsive crypto market dashboard starter built with React, Vite, and Supabas
 1. Open the SQL Editor in your Supabase project.
 2. Paste and run [`supabase/schema.sql`](supabase/schema.sql).
 3. The project URL and publishable key you supplied are already set as defaults. If you rotate them, update `src/supabase.js` or set the environment variables below. The publishable key (`sb_publishable_...`) is designed for browser use. Never use a secret/service-role key in this site.
-4. In **Authentication → URL Configuration**, add your GitHub Pages URL to **Site URL** and **Redirect URLs** (for example, `https://YOUR-USERNAME.github.io/usacryptobit/`). Add `http://localhost:5173/**` for local development.
+4. In **Authentication → URL Configuration**, set **Site URL** to `https://usacryptobit.github.io/` and allow it in **Redirect URLs**. Add `http://localhost:5173/**` for local development.
 5. If you want accounts to work immediately, review **Authentication → Providers → Email** and your email confirmation settings.
 
 The SQL creates `profiles` and `watchlist`, enables row-level security, and limits each account to its own rows.
@@ -56,6 +56,46 @@ The supplied Supabase configuration is already included. If you remove it, the d
 5. Once deployed, copy the Pages URL into Supabase Auth URL Configuration as described above.
 
 GitHub Actions builds the site using the repository variables and publishes the `dist` directory. Since these are public browser configuration values, GitHub Actions variables are appropriate; do not add a Supabase secret/service-role key.
+
+## 4. Set up administrator access
+
+The administrator area lets you search customer accounts, see account creation/last sign-in/email verification, apply a read-only watchlist restriction, suspend sign-in for 24 hours, 7 days, 30 days, or permanently, and restore access. Timed suspensions expire automatically. Every access change requires a reason and is recorded in the admin activity log. Administrators cannot change their own access or another administrator's access from this screen.
+
+### Install the database controls
+
+Run the updated [`supabase/schema.sql`](supabase/schema.sql) in your project's SQL Editor. It adds protected `user_roles`, `account_controls`, and `admin_action_log` tables and changes watchlist policies so restrictions are enforced in the database too.
+
+### Deploy the server-side admin function
+
+From this project folder in PowerShell, authenticate the Supabase CLI and deploy the function to your project:
+
+```powershell
+npx.cmd supabase login
+npx.cmd supabase functions deploy admin-users --project-ref wduxagzffigciuwidkvn
+```
+
+Supabase injects the server secret into Edge Functions. The function checks the signed-in user's role before it lists customers or changes access. Do not add a Supabase secret/service-role key to GitHub, the browser app, or `.env` files.
+
+### Promote your own account to admin
+
+1. Create your account through **Sign in → Create account** on the site and confirm your email.
+2. In Supabase **SQL Editor**, run this query with the same email you used to sign up:
+
+   ```sql
+   insert into public.user_roles (user_id, role)
+   select id, 'admin'
+   from auth.users
+   where lower(email) = lower('YOUR-EMAIL@example.com')
+   on conflict (user_id) do update set role = excluded.role;
+   ```
+
+3. Sign out and back in, then open the site's **Admin** section.
+
+If the query reports that it inserted zero rows, confirm the account exists in **Authentication → Users** and that the email matches. Only use the SQL Editor to grant administrator roles; a customer cannot grant a role to themselves through the site.
+
+### Publish the admin UI
+
+Commit and push the updated site files to the `usacryptobit.github.io` repository. GitHub Pages will deploy the new Admin section. The SQL schema and Edge Function must also be installed in Supabase as described above; GitHub Pages cannot run server-side admin actions by itself.
 
 ## Market data
 
