@@ -54,3 +54,5 @@ function App(){
 
 function Sparkline({positive,seed}){const points=Array.from({length:24},(_,i)=>{const wave=Math.sin((i+seed*3)*1.12)*7+Math.cos((i+seed)*.72)*5;const slope=positive?-i*.34:i*.28;const jitter=((i*17+seed*11)%9)-4;return `${i*5},${26+wave+slope+jitter}`}).join(' ');return <svg viewBox="0 0 115 36" preserveAspectRatio="none"><polyline points={points} fill="none" stroke={positive?'#c7f36b':'#fa8078'} strokeWidth="2" vectorEffect="non-scaling-stroke"/></svg>}
 
+export default App
+
