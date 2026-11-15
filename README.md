@@ -1,6 +1,6 @@
 # USA CryptoBit
 
-A responsive crypto market dashboard starter built with React, Vite, and Supabase. It shows CoinGecko market data, account sign-in/sign-up, and a private per-user watchlist. It does not custody cryptocurrency or execute trades.
+A responsive crypto market dashboard built with React, Vite, and Supabase. It shows CoinGecko market data, account sign-in/sign-up, a private watchlist, and a Virtual Wallet for simulated balances. The wallet does not custody cryptocurrency or execute trades, transfers, deposits, or withdrawals.
 
 ## 1. Set up Supabase
 
@@ -10,7 +10,7 @@ A responsive crypto market dashboard starter built with React, Vite, and Supabas
 4. In **Authentication → URL Configuration**, set **Site URL** to `https://usacryptobit.github.io/` and allow it in **Redirect URLs**. Add `http://localhost:5173/**` for local development.
 5. If you want accounts to work immediately, review **Authentication → Providers → Email** and your email confirmation settings.
 
-The SQL creates `profiles` and `watchlist`, enables row-level security, and limits each account to its own rows.
+The SQL creates profiles, watchlists, and Virtual Wallet tables, enables row-level security, and limits each customer to their own records. Wallet units are simulated and non-redeemable; the generated `DEMO-…` identifiers are not deposit addresses.
 
 ## 2. Run locally
 
@@ -61,9 +61,9 @@ GitHub Actions builds the site using the repository variables and publishes the 
 
 The administrator area lets you search customer accounts, see account creation/last sign-in/email verification, apply a read-only watchlist restriction, suspend sign-in for 24 hours, 7 days, 30 days, or permanently, and restore access. Timed suspensions expire automatically. Every access change requires a reason and is recorded in the admin activity log. Administrators cannot change their own access or another administrator's access from this screen.
 
-### Install the database controls
+### Install the database controls and Virtual Wallet
 
-Run the updated [`supabase/schema.sql`](supabase/schema.sql) in your project's SQL Editor. It adds protected `user_roles`, `account_controls`, and `admin_action_log` tables and changes watchlist policies so restrictions are enforced in the database too.
+Run the updated [`supabase/schema.sql`](supabase/schema.sql) in your project's SQL Editor. It adds protected `user_roles`, `account_controls`, and `admin_action_log` tables; customer Virtual Wallet balances, ledger, conversion and request functions; and database policies. Admin funding and request review are available only through the role-checked Edge Function. If you have already run an earlier version, run this updated script again so it adds the wallet tables and signup trigger setup.
 
 ### Deploy the server-side admin function
 
@@ -74,7 +74,7 @@ npx.cmd supabase login
 npx.cmd supabase functions deploy admin-users --project-ref wduxagzffigciuwidkvn
 ```
 
-Supabase injects the server secret into Edge Functions. The function checks the signed-in user's role before it lists customers or changes access. Do not add a Supabase secret/service-role key to GitHub, the browser app, or `.env` files.
+Supabase injects the server secret into Edge Functions. The function checks the signed-in user's role before listing customers, changing access, funding virtual balances, pausing requests, or reviewing a request. Do not add a Supabase secret/service-role key to GitHub, the browser app, or `.env` files.
 
 ### Promote your own account to admin
 
@@ -93,9 +93,17 @@ Supabase injects the server secret into Edge Functions. The function checks the 
 
 If the query reports that it inserted zero rows, confirm the account exists in **Authentication → Users** and that the email matches. Only use the SQL Editor to grant administrator roles; a customer cannot grant a role to themselves through the site.
 
-### Publish the admin UI
+### Publish the updated site
 
-Commit and push the updated site files to the `usacryptobit.github.io` repository. GitHub Pages will deploy the new Admin section. The SQL schema and Edge Function must also be installed in Supabase as described above; GitHub Pages cannot run server-side admin actions by itself.
+Commit and push the updated site files to the `usacryptobit.github.io` repository. GitHub Pages will deploy the Admin and Virtual Wallet sections. The SQL schema and Edge Function must also be installed in Supabase as described above; GitHub Pages cannot run server-side admin actions by itself.
+
+### Virtual Wallet behavior
+
+- New accounts receive empty virtual asset balances and stable `DEMO-…` identifiers that are not valid blockchain addresses.
+- Admins can add non-redeemable virtual units, pause or resume a customer's virtual withdrawal requests, and hold, release, approve (mark processed), or reject requests.
+- Customers can convert virtual units at the displayed market quote less a simulated 0.5% fee. A conversion is an in-app practice ledger entry only.
+- Customer requests move virtual units into a held balance until reviewed. An approval never sends funds; a rejection returns the units to the available virtual balance.
+- Every virtual wallet screen says the balances are simulated. Do not use this wallet to accept real deposits or promise real withdrawals.
 
 ## Market data
 

@@ -38,7 +38,7 @@ Deno.serve(async (request) => {
   if (roleError) return json({ error: 'Could not verify administrator access.' }, 500)
   if (roleRow?.role !== 'admin') return json({ error: 'Administrator access is required.' }, 403)
 
-  let body: { action?: string; user_id?: string; status?: string; reason?: string; duration?: string }
+  let body: { action?: string; user_id?: string; status?: string; reason?: string; duration?: string; asset?: string; amount?: number; withdrawal_id?: string; decision?: string; paused?: boolean }
   try { body = await request.json() } catch { return json({ error: 'Request body must be JSON.' }, 400) }
 
   if (body.action === 'list') {
@@ -49,12 +49,14 @@ Deno.serve(async (request) => {
       allUsers.push(...data.users)
       if (data.users.length < 1000) break
     }
-    const [{ data: controls, error: controlsError }, { data: roles, error: rolesError }, { data: actions, error: actionsError }] = await Promise.all([
-      admin.from('account_controls').select('user_id,status,reason,suspended_until,updated_at'),
+    const [{ data: controls, error: controlsError }, { data: roles, error: rolesError }, { data: actions, error: actionsError }, { data: wallets, error: walletsError }, { data: withdrawals, error: withdrawalsError }] = await Promise.all([
+      admin.from('account_controls').select('user_id,status,reason,suspended_until,updated_at,withdrawals_paused,withdrawal_pause_reason'),
       admin.from('user_roles').select('user_id,role'),
       admin.from('admin_action_log').select('id,admin_id,target_user_id,action,reason,created_at').order('created_at', { ascending: false }).limit(40),
+      admin.from('demo_wallets').select('user_id,asset,available,held'),
+      admin.from('demo_withdrawals').select('*').order('created_at', { ascending: false }).limit(100),
     ])
-    if (controlsError || rolesError || actionsError) return json({ error: 'Could not load customer controls. Run the admin SQL setup first.' }, 500)
+    if (controlsError || rolesError || actionsError || walletsError || withdrawalsError) return json({ error: 'Could not load customer controls and virtual wallets. Run the updated SQL setup first.' }, 500)
     const controlMap = new Map((controls ?? []).map((row) => [row.user_id, row]))
     const roleMap = new Map((roles ?? []).map((row) => [row.user_id, row.role]))
     const safeUsers = allUsers.map((user) => {
@@ -71,6 +73,9 @@ Deno.serve(async (request) => {
           : (control?.status ?? (user.banned_until ? 'suspended' : 'active')),
         reason: control?.reason ?? null,
         suspended_until: control?.suspended_until ?? user.banned_until ?? null,
+        withdrawals_paused: control?.withdrawals_paused ?? false,
+        withdrawal_pause_reason: control?.withdrawal_pause_reason ?? null,
+        wallets: (wallets ?? []).filter((wallet) => wallet.user_id === user.id),
       }
     })
     const emailById = new Map(safeUsers.map((user) => [user.id, user.email]))
@@ -81,7 +86,52 @@ Deno.serve(async (request) => {
         admin_email: emailById.get(item.admin_id) ?? 'Administrator',
         target_email: emailById.get(item.target_user_id) ?? 'Customer',
       })),
+      withdrawals: (withdrawals ?? []).map((item) => ({ ...item, user_email: emailById.get(item.user_id) ?? 'Customer' })),
     })
+  }
+
+  if (body.action === 'fund_virtual_wallet') {
+    const userId = body.user_id
+    const asset = body.asset?.toUpperCase()
+    const amount = Number(body.amount)
+    const reason = body.reason?.trim() ?? ''
+    if (!userId || !['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC'].includes(asset ?? '') || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000 || reason.length < 3 || reason.length > 500) return json({ error: 'Enter a valid customer, asset, amount, and reason.' }, 400)
+    const { data: role } = await admin.from('user_roles').select('role').eq('user_id', userId).maybeSingle()
+    if (userId === actor.id || role?.role === 'admin') return json({ error: 'Virtual balances cannot be changed for administrator accounts.' }, 403)
+    const { error } = await admin.rpc('admin_fund_demo_wallet', { p_admin_id: actor.id, p_user_id: userId, p_asset: asset, p_amount: amount, p_reason: reason })
+    if (error) return json({ error: error.message }, 502)
+    return json({ ok: true })
+  }
+
+  if (body.action === 'review_virtual_withdrawal') {
+    const decisionMap: Record<string, string> = { hold: 'hold', release: 'release', approve: 'approve', reject: 'reject' }
+    const decision = decisionMap[body.decision ?? '']
+    const reason = body.reason?.trim() ?? ''
+    if (!body.withdrawal_id || !decision || reason.length < 3 || reason.length > 500) return json({ error: 'Choose a valid request action and enter a reason.' }, 400)
+    const { data: requestRow, error: requestError } = await admin.from('demo_withdrawals').select('user_id').eq('id', body.withdrawal_id).maybeSingle()
+    if (requestError || !requestRow) return json({ error: 'Virtual withdrawal request not found.' }, 404)
+    const { data: role } = await admin.from('user_roles').select('role').eq('user_id', requestRow.user_id).maybeSingle()
+    if (requestRow.user_id === actor.id || role?.role === 'admin') return json({ error: 'Administrator withdrawal requests cannot be reviewed here.' }, 403)
+    const { error } = await admin.rpc('admin_review_demo_withdrawal', { p_admin_id: actor.id, p_withdrawal_id: body.withdrawal_id, p_action: decision, p_reason: reason })
+    if (error) return json({ error: error.message }, 502)
+    return json({ ok: true })
+  }
+
+  if (body.action === 'set_virtual_withdrawals_paused') {
+    const userId = body.user_id
+    const reason = body.reason?.trim() ?? ''
+    if (!userId || typeof body.paused !== 'boolean' || reason.length < 3 || reason.length > 500) return json({ error: 'Choose an account and enter a reason.' }, 400)
+    const { data: role, error: roleCheckError } = await admin.from('user_roles').select('role').eq('user_id', userId).maybeSingle()
+    if (roleCheckError) return json({ error: 'Could not verify customer role.' }, 500)
+    if (userId === actor.id || role?.role === 'admin') return json({ error: 'Administrator accounts cannot be changed here.' }, 403)
+    const { data: oldControl, error: readError } = await admin.from('account_controls').select('*').eq('user_id', userId).maybeSingle()
+    if (readError) return json({ error: 'Could not load the current account controls.' }, 500)
+    const update = { ...(oldControl ?? {}), user_id: userId, withdrawals_paused: body.paused, withdrawal_pause_reason: body.paused ? reason : null, updated_by: actor.id, updated_at: new Date().toISOString() }
+    const { error: writeError } = await admin.from('account_controls').upsert(update, { onConflict: 'user_id' })
+    if (writeError) return json({ error: writeError.message }, 502)
+    const { error: auditError } = await admin.from('admin_action_log').insert({ admin_id: actor.id, target_user_id: userId, action: body.paused ? 'withdrawal_paused' : 'withdrawal_unpaused', reason })
+    if (auditError) console.error('Virtual withdrawal control changed, but audit logging failed:', auditError.message)
+    return json({ ok: true })
   }
 
   if (body.action !== 'set_status') return json({ error: 'Unsupported action.' }, 400)
@@ -101,6 +151,7 @@ Deno.serve(async (request) => {
   const selectedDuration = nextStatus === 'suspended' ? durations[body.duration!] : null
   const { data: oldControl } = await admin.from('account_controls').select('*').eq('user_id', targetId).maybeSingle()
   const controlUpdate = {
+    ...(oldControl ?? {}),
     user_id: targetId,
     status: nextStatus,
     reason: nextStatus === 'active' ? null : reason,
