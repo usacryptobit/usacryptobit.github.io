@@ -16,3 +16,152 @@
 .wallet-reference{overflow-wrap:anywhere;font-size:10px!important}
 @media(max-width:1000px){.wallet-actions-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.wallet-actions-grid{grid-template-columns:1fr}}
+
+/* Product-wide visual refinement */
+:root{
+  --bg:#080c11;
+  --panel:#101720;
+  --line:#25313d;
+  --muted:#91a0ad;
+  --lime:#c8f27b;
+  color:#eef2f5;
+  background:
+    radial-gradient(ellipse at 75% -18%,rgba(112,145,66,.11),transparent 38%),
+    #080c11;
+}
+html{scroll-behavior:smooth}
+body{
+  background:
+    radial-gradient(ellipse at 75% -18%,rgba(112,145,66,.11),transparent 38%),
+    #080c11;
+  color:#eef2f5;
+  line-height:1.5;
+}
+::selection{background:#c8f27b;color:#10150c}
+:focus-visible{outline:2px solid #c8f27b;outline-offset:3px}
+button,a,input,select,textarea{transition:background-color .18s ease,border-color .18s ease,color .18s ease,box-shadow .18s ease,transform .18s ease}
+.sidebar{
+  background:linear-gradient(180deg,#0d131a 0%,#0a1016 100%);
+  border-right-color:#202b36;
+  padding-top:28px;
+}
+.brand{font-size:14px;letter-spacing:.55px}
+.brand-icon{width:34px;height:34px;box-shadow:0 0 0 4px #c8f27b12}
+.side-label{color:#718090;letter-spacing:1.8px;font-size:9px}
+.nav-link{border-radius:8px;padding:11px 12px;font-size:12px}
+.nav-link:hover{background:#17212a;transform:translateX(2px)}
+.nav-active{background:linear-gradient(90deg,#1b2821,#17211c);box-shadow:inset 2px 0 #c8f27b}
+.secure-note{background:#101820;border-color:#2b3944;border-radius:10px;padding:13px 12px}
+.main{background:transparent}
+.topbar{
+  background:rgba(8,12,17,.88);
+  border-bottom-color:#202b36;
+  box-shadow:0 8px 28px #0002;
+}
+.user-pill,.date-chip,.search-box,.filter-btn,.login-btn{border-radius:8px}
+.user-pill:hover,.date-chip:hover,.filter-btn:hover,.login-btn:hover{border-color:#647746;color:#eef2f5}
+.content{padding-top:39px;padding-bottom:36px}
+.welcome-row{margin-bottom:25px}
+.welcome-row h1{font-size:31px;letter-spacing:-1.1px}
+.subhead{font-size:12px;line-height:1.65;color:#9aa7b3}
+.hero-card{
+  height:250px;
+  border-color:#344237;
+  border-radius:12px;
+  background:linear-gradient(110deg,#17221e 0%,#111a20 56%,#18231c 100%);
+  box-shadow:0 18px 48px #0002,inset 0 1px #ffffff08;
+  margin-bottom:18px;
+  padding:30px 34px;
+}
+.hero-copy h2{font-size:38px;letter-spacing:-1.25px}
+.hero-copy p{font-size:11px;line-height:1.8}
+.hero-cta{border-radius:7px;padding:10px 14px;box-shadow:0 6px 18px #c8f27b20}
+.hero-cta:hover,.submit-btn:hover,.confirm-action-btn:hover{transform:translateY(-1px);box-shadow:0 7px 20px #c8f27b25}
+.stat-grid{gap:14px}
+.stat-card,.mover-card,.table-wrap,.wallet-card,.wallet-form-card,.wallet-history{
+  border-color:#26333f;
+  box-shadow:0 8px 24px #00000012,inset 0 1px #ffffff05;
+}
+.stat-card{border-radius:10px;padding:15px 17px;min-height:138px}
+.stat-card:hover,.mover-card:hover,.wallet-card:hover{border-color:#3b4a57;transform:translateY(-2px)}
+.stat-label,.section-eyebrow{letter-spacing:1.25px}
+.movers-row{margin-top:30px}
+.mover-grid{gap:12px}
+.mover-card{border-radius:9px;background:#101720;padding:13px}
+.market-section{margin-top:35px}
+.market-heading{margin-bottom:14px}
+.section-title h3{font-size:18px;letter-spacing:-.5px}
+.search-box{height:36px;padding:0 11px;background:#0e151d}
+.search-box:focus-within{border-color:#91b85b;box-shadow:0 0 0 3px #c8f27b12}
+.search-box input{font-size:10px;width:150px}
+.filter-btn{background:#101720}
+.table-wrap{border-radius:10px;background:#0d141b}
+thead{background:#131c25}
+th{padding:13px 15px;letter-spacing:1px}
+td{padding:12px 15px}
+tbody tr:hover{background:#151f28}
+.asset-cell b{font-size:12px}
+.asset-cell div>span{font-size:10px}
+.footer{padding-top:18px;font-size:9px}
+.footer-brand{font-size:10px}
+.auth-modal,.admin-action-modal{border-radius:14px;box-shadow:0 24px 80px #0009}
+.auth-modal input,.admin-field textarea,.wallet-form-card input,.wallet-form-card select,.admin-field input{
+  border-radius:7px;
+}
+.submit-btn,.cancel-btn,.confirm-action-btn,.confirm-suspend-btn{border-radius:7px}
+.wallet-page{gap:18px}
+.wallet-notice{
+  position:relative;
+  border-radius:10px;
+  background:linear-gradient(110deg,#18231c,#141c19);
+  box-shadow:inset 3px 0 #c8f27b;
+}
+.wallet-summary,.wallet-card,.wallet-form-card,.wallet-history{border-radius:10px}
+.wallet-card{padding:15px}
+.wallet-card>strong{font-size:18px}
+.wallet-form-card{padding:18px}
+.wallet-form-card input,.wallet-form-card select{height:39px}
+.admin-heading h1{letter-spacing:-1px}
+.admin-stats article,.admin-list,.admin-section,.admin-wallet-section{
+  border-radius:10px;
+}
+@media(max-width:900px){
+  .content{padding-top:30px}
+  .hero-card{height:230px;padding:25px}
+  .hero-copy h2{font-size:33px}
+}
+@media(max-width:760px){
+  .sidebar{box-shadow:18px 0 48px #0008}
+  .topbar{height:58px;padding:0 18px}
+  .content{padding:25px 18px 26px}
+  .welcome-row h1{font-size:27px}
+  .hero-card{height:220px;border-radius:10px}
+  .hero-visual{right:2%;transform:translate(15%,-50%) scale(.82);opacity:.78}
+  .hero-copy{width:60%}
+  .stat-grid{gap:9px}
+}
+@media(max-width:520px){
+  .content{padding:22px 14px 22px}
+  .welcome-row{align-items:flex-start;gap:12px}
+  .welcome-row h1{font-size:25px}
+  .date-chip{font-size:9px;padding:7px}
+  .hero-card{height:215px;padding:21px}
+  .hero-copy{width:76%}
+  .hero-copy h2{font-size:29px}
+  .hero-copy p{max-width:245px;font-size:10px}
+  .hero-visual{right:-19%;opacity:.44;transform:translate(15%,-50%) scale(.7)}
+  .hero-index{left:21px}
+  .stat-grid{grid-template-columns:1fr}
+  .stat-card{min-height:112px}
+  .market-heading{align-items:flex-start;gap:10px;flex-direction:column}
+  .market-tools{width:100%}
+  .search-box{flex:1}
+  .search-box input{width:100%;min-width:0}
+  .mover-grid{grid-template-columns:1fr}
+  .footer{flex-wrap:wrap}
+  .footer-note{border:0;padding:0}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
+}
+

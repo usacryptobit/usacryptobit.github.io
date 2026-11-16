@@ -100,12 +100,10 @@ create table if not exists public.virtual_deposit_requests (
 );
 
 alter table public.demo_wallet_ledger drop constraint if exists demo_wallet_ledger_entry_type_check;
-alter table public.demo_wallet_ledger add constraint demo_wallet_ledger_entry_type_check
-  check (entry_type in ('admin_funding','conversion_out','conversion_in','withdrawal_requested','withdrawal_approved','withdrawal_rejected','virtual_deposit'));
+alter table public.demo_wallet_ledger add constraint demo_wallet_ledger_entry_type_check check (entry_type in ('admin_funding','conversion_out','conversion_in','withdrawal_requested','withdrawal_approved','withdrawal_rejected','virtual_deposit'));
 
 alter table public.admin_action_log drop constraint if exists admin_action_log_action_check;
-alter table public.admin_action_log add constraint admin_action_log_action_check
-  check (action in ('restricted','suspended','activated','demo_funding','virtual_funding','withdrawal_paused','withdrawal_unpaused','withdrawal_hold','withdrawal_release','withdrawal_approved','withdrawal_rejected','virtual_deposit_approved','virtual_deposit_rejected'));
+alter table public.admin_action_log add constraint admin_action_log_action_check check (action in ('restricted','suspended','activated','demo_funding','virtual_funding','withdrawal_paused','withdrawal_unpaused','withdrawal_hold','withdrawal_release','withdrawal_approved','withdrawal_rejected','virtual_deposit_approved','virtual_deposit_rejected'));
 update public.admin_action_log set action='virtual_funding' where action='demo_funding';
 
 create index if not exists watchlist_user_id_idx on public.watchlist(user_id);
