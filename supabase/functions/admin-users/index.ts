@@ -38,7 +38,7 @@ Deno.serve(async (request) => {
   if (roleError) return json({ error: 'Could not verify administrator access.' }, 500)
   if (roleRow?.role !== 'admin') return json({ error: 'Administrator access is required.' }, 403)
 
-  let body: { action?: string; user_id?: string; status?: string; reason?: string; duration?: string; asset?: string; amount?: number; withdrawal_id?: string; decision?: string; paused?: boolean }
+  let body: { action?: string; user_id?: string; status?: string; reason?: string; duration?: string; asset?: string; amount?: number; withdrawal_id?: string; deposit_request_id?: string; decision?: string; paused?: boolean }
   try { body = await request.json() } catch { return json({ error: 'Request body must be JSON.' }, 400) }
 
   if (body.action === 'list') {
@@ -49,14 +49,15 @@ Deno.serve(async (request) => {
       allUsers.push(...data.users)
       if (data.users.length < 1000) break
     }
-    const [{ data: controls, error: controlsError }, { data: roles, error: rolesError }, { data: actions, error: actionsError }, { data: wallets, error: walletsError }, { data: withdrawals, error: withdrawalsError }] = await Promise.all([
+    const [{ data: controls, error: controlsError }, { data: roles, error: rolesError }, { data: actions, error: actionsError }, { data: wallets, error: walletsError }, { data: withdrawals, error: withdrawalsError }, { data: deposits, error: depositsError }] = await Promise.all([
       admin.from('account_controls').select('user_id,status,reason,suspended_until,updated_at,withdrawals_paused,withdrawal_pause_reason'),
       admin.from('user_roles').select('user_id,role'),
       admin.from('admin_action_log').select('id,admin_id,target_user_id,action,reason,created_at').order('created_at', { ascending: false }).limit(40),
       admin.from('demo_wallets').select('user_id,asset,available,held'),
       admin.from('demo_withdrawals').select('*').order('created_at', { ascending: false }).limit(100),
+      admin.from('virtual_deposit_requests').select('*').order('created_at', { ascending: false }).limit(100),
     ])
-    if (controlsError || rolesError || actionsError || walletsError || withdrawalsError) return json({ error: 'Could not load customer controls and virtual wallets. Run the updated SQL setup first.' }, 500)
+    if (controlsError || rolesError || actionsError || walletsError || withdrawalsError || depositsError) return json({ error: 'Could not load customer controls and wallet requests. Run the updated SQL setup first.' }, 500)
     const controlMap = new Map((controls ?? []).map((row) => [row.user_id, row]))
     const roleMap = new Map((roles ?? []).map((row) => [row.user_id, row.role]))
     const safeUsers = allUsers.map((user) => {
@@ -87,6 +88,7 @@ Deno.serve(async (request) => {
         target_email: emailById.get(item.target_user_id) ?? 'Customer',
       })),
       withdrawals: (withdrawals ?? []).map((item) => ({ ...item, user_email: emailById.get(item.user_id) ?? 'Customer' })),
+      deposits: (deposits ?? []).map((item) => ({ ...item, user_email: emailById.get(item.user_id) ?? 'Customer' })),
     })
   }
 
@@ -113,6 +115,19 @@ Deno.serve(async (request) => {
     const { data: role } = await admin.from('user_roles').select('role').eq('user_id', requestRow.user_id).maybeSingle()
     if (requestRow.user_id === actor.id || role?.role === 'admin') return json({ error: 'Administrator withdrawal requests cannot be reviewed here.' }, 403)
     const { error } = await admin.rpc('admin_review_demo_withdrawal', { p_admin_id: actor.id, p_withdrawal_id: body.withdrawal_id, p_action: decision, p_reason: reason })
+    if (error) return json({ error: error.message }, 502)
+    return json({ ok: true })
+  }
+
+  if (body.action === 'review_virtual_deposit') {
+    const decision = body.decision
+    const reason = body.reason?.trim() ?? ''
+    if (!body.deposit_request_id || !['approve','reject'].includes(decision ?? '') || reason.length < 3 || reason.length > 500) return json({ error: 'Choose a valid deposit action and enter a reason.' }, 400)
+    const { data: requestRow, error: requestError } = await admin.from('virtual_deposit_requests').select('user_id').eq('id', body.deposit_request_id).maybeSingle()
+    if (requestError || !requestRow) return json({ error: 'Deposit request not found.' }, 404)
+    const { data: role } = await admin.from('user_roles').select('role').eq('user_id', requestRow.user_id).maybeSingle()
+    if (requestRow.user_id === actor.id || role?.role === 'admin') return json({ error: 'Administrator deposit requests cannot be reviewed here.' }, 403)
+    const { error } = await admin.rpc('admin_review_virtual_deposit', { p_admin_id: actor.id, p_request_id: body.deposit_request_id, p_action: decision, p_reason: reason })
     if (error) return json({ error: error.message }, 502)
     return json({ ok: true })
   }

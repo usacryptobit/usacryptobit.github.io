@@ -87,15 +87,32 @@ create table if not exists public.demo_withdrawals (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.virtual_deposit_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC')),
+  amount numeric(38,12) not null check (amount > 0),
+  reference_note text check (reference_note is null or char_length(reference_note) <= 200),
+  status text not null default 'pending' check (status in ('pending','approved','rejected')),
+  reason text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.demo_wallet_ledger drop constraint if exists demo_wallet_ledger_entry_type_check;
+alter table public.demo_wallet_ledger add constraint demo_wallet_ledger_entry_type_check
+  check (entry_type in ('admin_funding','conversion_out','conversion_in','withdrawal_requested','withdrawal_approved','withdrawal_rejected','virtual_deposit'));
+
 alter table public.admin_action_log drop constraint if exists admin_action_log_action_check;
 alter table public.admin_action_log add constraint admin_action_log_action_check
-  check (action in ('restricted','suspended','activated','demo_funding','virtual_funding','withdrawal_paused','withdrawal_unpaused','withdrawal_hold','withdrawal_release','withdrawal_approved','withdrawal_rejected'));
+  check (action in ('restricted','suspended','activated','demo_funding','virtual_funding','withdrawal_paused','withdrawal_unpaused','withdrawal_hold','withdrawal_release','withdrawal_approved','withdrawal_rejected','virtual_deposit_approved','virtual_deposit_rejected'));
 update public.admin_action_log set action='virtual_funding' where action='demo_funding';
 
 create index if not exists watchlist_user_id_idx on public.watchlist(user_id);
 create index if not exists admin_action_log_created_at_idx on public.admin_action_log(created_at desc);
 create index if not exists demo_wallet_ledger_user_created_idx on public.demo_wallet_ledger(user_id, created_at desc);
 create index if not exists demo_withdrawals_status_created_idx on public.demo_withdrawals(status, created_at desc);
+create index if not exists virtual_deposit_requests_status_created_idx on public.virtual_deposit_requests(status, created_at desc);
 
 alter table public.profiles enable row level security;
 alter table public.watchlist enable row level security;
@@ -105,6 +122,7 @@ alter table public.admin_action_log enable row level security;
 alter table public.demo_wallets enable row level security;
 alter table public.demo_wallet_ledger enable row level security;
 alter table public.demo_withdrawals enable row level security;
+alter table public.virtual_deposit_requests enable row level security;
 
 -- The security definer reads status without exposing other customers' records.
 create or replace function public.current_account_status()
@@ -160,6 +178,9 @@ create policy "Users can view their own demo wallet ledger" on public.demo_walle
 drop policy if exists "Users can view their own demo withdrawals" on public.demo_withdrawals;
 create policy "Users can view their own demo withdrawals" on public.demo_withdrawals
   for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "Users can view their own virtual deposit requests" on public.virtual_deposit_requests;
+create policy "Users can view their own virtual deposit requests" on public.virtual_deposit_requests
+  for select to authenticated using ((select auth.uid()) = user_id);
 
 -- Create a profile row automatically after a new account is registered.
 create or replace function public.handle_new_user()
@@ -189,8 +210,10 @@ grant select, update on public.profiles to authenticated;
 grant select, insert, delete on public.watchlist to authenticated;
 grant select on public.user_roles, public.account_controls to authenticated;
 grant select on public.demo_wallets, public.demo_wallet_ledger, public.demo_withdrawals to authenticated;
+grant select on public.virtual_deposit_requests to authenticated;
 revoke insert, update, delete on public.user_roles, public.account_controls from anon, authenticated;
 revoke insert, update, delete on public.demo_wallets, public.demo_wallet_ledger, public.demo_withdrawals from anon, authenticated;
+revoke insert, update, delete on public.virtual_deposit_requests from anon, authenticated;
 revoke all on public.admin_action_log from anon, authenticated;
 
 -- Provision display-only virtual wallet IDs for current and new users.
@@ -295,6 +318,30 @@ revoke all on function public.demo_request_withdrawal(text,numeric,text) from pu
 revoke all on function public.demo_request_withdrawal(text,numeric,text) from anon;
 grant execute on function public.demo_request_withdrawal(text,numeric,text) to authenticated;
 
+-- Customer deposit actions create a review request only; they never accept or verify a blockchain transfer.
+create or replace function public.virtual_request_deposit(p_asset text,p_amount numeric,p_reference_note text default null)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user uuid := auth.uid();
+  v_id uuid := gen_random_uuid();
+begin
+  if v_user is null then raise exception 'Sign in is required.'; end if;
+  if public.current_account_status() <> 'active' then raise exception 'Account must be active to request a deposit.'; end if;
+  if p_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC') then raise exception 'Unsupported asset.'; end if;
+  if p_amount is null or p_amount <= 0 or p_amount > 1000000000 then raise exception 'Enter a valid amount.'; end if;
+  if p_reference_note is not null and char_length(trim(p_reference_note)) > 200 then raise exception 'Reference note must be 200 characters or fewer.'; end if;
+  insert into public.virtual_deposit_requests(id,user_id,asset,amount,reference_note)
+    values (v_id,v_user,p_asset,p_amount,nullif(trim(p_reference_note),''));
+  return v_id;
+end;
+$$;
+revoke all on function public.virtual_request_deposit(text,numeric,text) from public,anon;
+grant execute on function public.virtual_request_deposit(text,numeric,text) to authenticated;
+
 -- Privileged virtual wallet operations are callable only by the service role from the checked Edge Function.
 create or replace function public.admin_fund_demo_wallet(p_admin_id uuid,p_user_id uuid,p_asset text,p_amount numeric,p_reason text)
 returns void
@@ -364,3 +411,38 @@ end;
 $$;
 revoke all on function public.admin_review_demo_withdrawal(uuid,uuid,text,text) from public,anon,authenticated;
 grant execute on function public.admin_review_demo_withdrawal(uuid,uuid,text,text) to service_role;
+
+create or replace function public.admin_review_virtual_deposit(p_admin_id uuid,p_request_id uuid,p_action text,p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_request public.virtual_deposit_requests%rowtype;
+  v_action text;
+begin
+  if (select auth.role()) <> 'service_role' then raise exception 'Service role required.'; end if;
+  if p_action not in ('approve','reject') then raise exception 'Choose approve or reject.'; end if;
+  if p_reason is null or char_length(trim(p_reason)) not between 3 and 500 then raise exception 'A reason between 3 and 500 characters is required.'; end if;
+  select * into v_request from public.virtual_deposit_requests where id=p_request_id for update;
+  if not found then raise exception 'Deposit request not found.'; end if;
+  if v_request.status <> 'pending' then raise exception 'This deposit request has already been reviewed.'; end if;
+  if p_action='approve' then
+    update public.demo_wallets set available=available+v_request.amount,updated_at=now()
+      where user_id=v_request.user_id and asset=v_request.asset;
+    if not found then raise exception 'Wallet for this asset was not found.'; end if;
+    update public.virtual_deposit_requests set status='approved',reason=trim(p_reason),updated_at=now() where id=p_request_id;
+    insert into public.demo_wallet_ledger(user_id,asset,available_delta,entry_type,reference_id,note,created_by)
+      values(v_request.user_id,v_request.asset,v_request.amount,'virtual_deposit',p_request_id,trim(p_reason),p_admin_id);
+    v_action := 'virtual_deposit_approved';
+  else
+    update public.virtual_deposit_requests set status='rejected',reason=trim(p_reason),updated_at=now() where id=p_request_id;
+    v_action := 'virtual_deposit_rejected';
+  end if;
+  insert into public.admin_action_log(admin_id,target_user_id,action,reason)
+    values(p_admin_id,v_request.user_id,v_action,trim(p_reason));
+end;
+$$;
+revoke all on function public.admin_review_virtual_deposit(uuid,uuid,text,text) from public,anon,authenticated;
+grant execute on function public.admin_review_virtual_deposit(uuid,uuid,text,text) to service_role;

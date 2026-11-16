@@ -12,3 +12,7 @@
 @media(max-width:900px){.wallet-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:650px){.wallet-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wallet-actions-grid{grid-template-columns:1fr}.wallet-card{padding:10px}.wallet-card>strong{font-size:15px}}
 .wallet-id-label{font-size:7px;color:#788594;text-transform:uppercase;letter-spacing:.7px;margin-top:3px}
+.wallet-summary{display:grid;gap:5px;padding:15px 18px;background:linear-gradient(110deg,#17211d,#111820);border:1px solid #2c3a31;border-radius:7px}.wallet-summary>span{font-size:9px;color:#95a29a}.wallet-summary>strong{font:500 24px 'Space Grotesk',sans-serif;color:#e8f0e8}.wallet-summary>small{font-size:8px;color:#758278}.wallet-actions-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.wallet-usd-value{color:#a8bd91!important;font-size:8px!important;margin-top:1px}.wallet-form-card .submit-btn{min-height:38px}.wallet-form-card select{appearance:auto}
+.wallet-reference{overflow-wrap:anywhere;font-size:10px!important}
+@media(max-width:1000px){.wallet-actions-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.wallet-actions-grid{grid-template-columns:1fr}}
