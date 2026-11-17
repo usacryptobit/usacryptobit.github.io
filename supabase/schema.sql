@@ -263,6 +263,106 @@ create policy "Users can delete their own profile pictures" on storage.objects
     bucket_id = 'profile-avatars' and (storage.foldername(name))[1] = (select auth.uid())::text
   );
 
+-- Private in-account conversations between each customer and the admin team.
+create table if not exists public.support_conversations (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid not null references auth.users(id) on delete cascade,
+  subject text not null check (char_length(subject) between 1 and 120),
+  status text not null default 'open' check (status in ('open','closed')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.support_messages (
+  id bigint generated always as identity primary key,
+  conversation_id uuid not null references public.support_conversations(id) on delete cascade,
+  sender_id uuid not null references auth.users(id) on delete cascade,
+  body text not null check (char_length(body) between 1 and 5000),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists support_conversations_customer_updated_idx
+  on public.support_conversations(customer_id, updated_at desc);
+create index if not exists support_messages_conversation_created_idx
+  on public.support_messages(conversation_id, created_at);
+
+alter table public.support_conversations enable row level security;
+alter table public.support_messages enable row level security;
+
+create or replace function public.is_current_user_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.user_roles r
+    where r.user_id = (select auth.uid()) and r.role = 'admin'
+  );
+$$;
+revoke all on function public.is_current_user_admin() from public, anon;
+grant execute on function public.is_current_user_admin() to authenticated;
+
+create or replace function public.can_access_support_conversation(p_conversation_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select public.is_current_user_admin() or exists (
+    select 1 from public.support_conversations c
+    where c.id = p_conversation_id and c.customer_id = (select auth.uid())
+  );
+$$;
+revoke all on function public.can_access_support_conversation(uuid) from public, anon;
+grant execute on function public.can_access_support_conversation(uuid) to authenticated;
+
+drop policy if exists "Customers and admins can read support conversations" on public.support_conversations;
+create policy "Customers and admins can read support conversations" on public.support_conversations
+  for select to authenticated using (customer_id = (select auth.uid()) or public.is_current_user_admin());
+drop policy if exists "Customers can start their own support conversations" on public.support_conversations;
+drop policy if exists "Customers and admins can start support conversations" on public.support_conversations;
+create policy "Customers and admins can start support conversations" on public.support_conversations
+  for insert to authenticated with check (
+    (customer_id = (select auth.uid()) or public.is_current_user_admin()) and status = 'open'
+  );
+drop policy if exists "Admins can update support conversations" on public.support_conversations;
+create policy "Admins can update support conversations" on public.support_conversations
+  for update to authenticated using (public.is_current_user_admin())
+  with check (public.is_current_user_admin());
+
+drop policy if exists "Conversation participants can read support messages" on public.support_messages;
+create policy "Conversation participants can read support messages" on public.support_messages
+  for select to authenticated using (public.can_access_support_conversation(conversation_id));
+drop policy if exists "Conversation participants can send support messages" on public.support_messages;
+create policy "Conversation participants can send support messages" on public.support_messages
+  for insert to authenticated with check (
+    sender_id = (select auth.uid())
+    and public.can_access_support_conversation(conversation_id)
+  );
+
+create or replace function public.bump_support_conversation_updated_at()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.support_conversations set updated_at = now() where id = new.conversation_id;
+  return new;
+end;
+$$;
+drop trigger if exists support_message_bumps_conversation on public.support_messages;
+create trigger support_message_bumps_conversation
+  after insert on public.support_messages
+  for each row execute procedure public.bump_support_conversation_updated_at();
+
+grant select, insert, update on public.support_conversations to authenticated;
+grant select, insert on public.support_messages to authenticated;
+grant usage, select on sequence public.support_messages_id_seq to authenticated;
+
 -- Make conversions atomic and keep all virtual balance changes in the ledger.
 create or replace function public.demo_convert(
   p_from_asset text,
