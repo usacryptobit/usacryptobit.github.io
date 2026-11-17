@@ -97,7 +97,7 @@ Deno.serve(async (request) => {
     const asset = body.asset?.toUpperCase()
     const amount = Number(body.amount)
     const reason = body.reason?.trim() ?? ''
-    if (!userId || !['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC'].includes(asset ?? '') || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000 || reason.length < 3 || reason.length > 500) return json({ error: 'Enter a valid customer, asset, amount, and reason.' }, 400)
+    if (!userId || !['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'].includes(asset ?? '') || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000 || reason.length < 3 || reason.length > 500) return json({ error: 'Enter a valid customer, asset, amount, and reason.' }, 400)
     const { data: role } = await admin.from('user_roles').select('role').eq('user_id', userId).maybeSingle()
     if (userId === actor.id || role?.role === 'admin') return json({ error: 'Virtual balances cannot be changed for administrator accounts.' }, 403)
     const { error } = await admin.rpc('admin_fund_demo_wallet', { p_admin_id: actor.id, p_user_id: userId, p_asset: asset, p_amount: amount, p_reason: reason })

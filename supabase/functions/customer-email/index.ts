@@ -13,7 +13,7 @@ const htmlEscapes: Record<string, string> = { '&':'&amp;', '<':'&lt;', '>':'&gt;
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, char => htmlEscapes[char])
 const formatAmount = (value: number) => new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(value)
 const validUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-const assets = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC']
+const assets = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD']
 
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })

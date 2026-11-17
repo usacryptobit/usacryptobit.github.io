@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ArrowDownUp, Clock3, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
 import { supabase } from './supabase'
 
-const ASSETS = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC']
+const ASSETS = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD']
 const amount = value => Number(value || 0).toLocaleString('en-US',{maximumFractionDigits:8})
 const usd = value => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(value||0))
 const statusClass = status => status === 'approved' ? 'active' : status === 'rejected' ? 'suspended' : 'restricted'
@@ -26,7 +26,7 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
     setWallets(w.data??[]);setLedger(l.data??[]);setWithdrawals(d.data??[]);setDeposits(dep.data??[])
   },[currentUser])
   useEffect(()=>{load()},[load])
-  const prices=useMemo(()=>Object.fromEntries(coins.map(c=>[c.symbol.toUpperCase(),c.current_price])),[coins])
+  const prices=useMemo(()=>Object.fromEntries([...['USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'].map(symbol=>[symbol,1]),...coins.map(c=>[c.symbol.toUpperCase(),c.current_price])]),[coins])
   const quote=Number(convertAmount)>0&&prices[from]&&prices[to]?Number(convertAmount)*prices[from]/prices[to]*.995:0
   const totalUsd=wallets.reduce((sum,w)=>sum+Number(w.available||0)*Number(prices[w.asset]||0),0)
   const depositWallet=wallets.find(w=>w.asset===depositAsset)
@@ -60,7 +60,7 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   }
   return <section className="wallet-page">
     <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div>
-    <div className="wallet-notice"><ShieldCheck size={19}/><span><b>USACryptoBit Wallet</b> — balances and transactions are real. Wallet IDs is your official USACRYPTOBIT wallet. Deposits, transfers, and withdrawals move cryptocurrency or money.</span></div>
+    <div className="wallet-notice"><ShieldCheck size={19}/><span><b>USACryptoBit Wallet</b> — balances and transactions are simulated. Wallet IDs are display-only identifiers. Deposits, conversions, and withdrawals do not move cryptocurrency or money.</span></div>
     {accountControl?.status&&accountControl.status!=='active'&&<div className={`account-status-banner account-${accountControl.status}`}><ShieldCheck size={17}/><span>Account {accountControl.status}. Wallet operations require an active account.</span></div>}
     {accountControl?.withdrawals_paused&&<div className="account-status-banner account-restricted"><ShieldCheck size={17}/><span>Withdrawal requests are paused. {accountControl.withdrawal_pause_reason}</span></div>}
     {error&&<div className="admin-error">{error}</div>}

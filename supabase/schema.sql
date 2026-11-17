@@ -52,7 +52,7 @@ create table if not exists public.admin_action_log (
 -- Virtual wallet balances are simulated credits; these IDs are not deposit addresses.
 create table if not exists public.demo_wallets (
   user_id uuid not null references auth.users(id) on delete cascade,
-  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC')),
+  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD')),
   demo_address text not null,
   available numeric(38,12) not null default 0 check (available >= 0),
   held numeric(38,12) not null default 0 check (held >= 0),
@@ -65,7 +65,7 @@ create table if not exists public.demo_wallets (
 create table if not exists public.demo_wallet_ledger (
   id bigint generated always as identity primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
-  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC')),
+  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD')),
   available_delta numeric(38,12) not null default 0,
   held_delta numeric(38,12) not null default 0,
   entry_type text not null check (entry_type in ('admin_funding','conversion_out','conversion_in','withdrawal_requested','withdrawal_approved','withdrawal_rejected')),
@@ -78,7 +78,7 @@ create table if not exists public.demo_wallet_ledger (
 create table if not exists public.demo_withdrawals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC')),
+  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD')),
   amount numeric(38,12) not null check (amount > 0),
   destination text not null check (char_length(destination) between 4 and 200),
   status text not null default 'pending' check (status in ('pending','held','approved','rejected')),
@@ -90,7 +90,7 @@ create table if not exists public.demo_withdrawals (
 create table if not exists public.virtual_deposit_requests (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC')),
+  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD')),
   amount numeric(38,12) not null check (amount > 0),
   reference_note text check (reference_note is null or char_length(reference_note) <= 200),
   status text not null default 'pending' check (status in ('pending','approved','rejected')),
@@ -101,6 +101,16 @@ create table if not exists public.virtual_deposit_requests (
 
 alter table public.demo_wallet_ledger drop constraint if exists demo_wallet_ledger_entry_type_check;
 alter table public.demo_wallet_ledger add constraint demo_wallet_ledger_entry_type_check check (entry_type in ('admin_funding','conversion_out','conversion_in','withdrawal_requested','withdrawal_approved','withdrawal_rejected','virtual_deposit'));
+
+-- Expand the supported asset set on existing installations as well as new ones.
+alter table public.demo_wallets drop constraint if exists demo_wallets_asset_check;
+alter table public.demo_wallets add constraint demo_wallets_asset_check check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'));
+alter table public.demo_wallet_ledger drop constraint if exists demo_wallet_ledger_asset_check;
+alter table public.demo_wallet_ledger add constraint demo_wallet_ledger_asset_check check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'));
+alter table public.demo_withdrawals drop constraint if exists demo_withdrawals_asset_check;
+alter table public.demo_withdrawals add constraint demo_withdrawals_asset_check check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'));
+alter table public.virtual_deposit_requests drop constraint if exists virtual_deposit_requests_asset_check;
+alter table public.virtual_deposit_requests add constraint virtual_deposit_requests_asset_check check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'));
 
 alter table public.admin_action_log drop constraint if exists admin_action_log_action_check;
 alter table public.admin_action_log add constraint admin_action_log_action_check check (action in ('restricted','suspended','activated','demo_funding','virtual_funding','withdrawal_paused','withdrawal_unpaused','withdrawal_hold','withdrawal_release','withdrawal_approved','withdrawal_rejected','virtual_deposit_approved','virtual_deposit_rejected'));
@@ -192,7 +202,7 @@ begin
   on conflict (id) do nothing;
   insert into public.demo_wallets (user_id, asset, demo_address)
   select new.id, a.asset, 'VIRTUAL-' || a.asset || '-' || upper(substr(replace(new.id::text, '-', ''), 1, 12))
-  from (values ('BTC'),('ETH'),('SOL'),('BNB'),('XRP'),('DOGE'),('ADA'),('AVAX'),('LINK'),('DOT'),('TRX'),('LTC')) as a(asset)
+  from (values ('BTC'),('ETH'),('SOL'),('BNB'),('XRP'),('DOGE'),('ADA'),('AVAX'),('LINK'),('DOT'),('TRX'),('LTC'),('USDT'),('USDC'),('DAI'),('USDS'),('USDE'),('PYUSD'),('FDUSD'),('RLUSD'),('USDG'),('USDP'),('GUSD'),('USD1'),('USDD')) as a(asset)
   on conflict (user_id, asset) do nothing;
   return new;
 end;
@@ -218,7 +228,7 @@ revoke all on public.admin_action_log from anon, authenticated;
 insert into public.demo_wallets (user_id, asset, demo_address)
 select u.id, a.asset, 'VIRTUAL-' || a.asset || '-' || upper(substr(replace(u.id::text, '-', ''), 1, 12))
 from auth.users u
-cross join (values ('BTC'),('ETH'),('SOL'),('BNB'),('XRP'),('DOGE'),('ADA'),('AVAX'),('LINK'),('DOT'),('TRX'),('LTC')) as a(asset)
+cross join (values ('BTC'),('ETH'),('SOL'),('BNB'),('XRP'),('DOGE'),('ADA'),('AVAX'),('LINK'),('DOT'),('TRX'),('LTC'),('USDT'),('USDC'),('DAI'),('USDS'),('USDE'),('PYUSD'),('FDUSD'),('RLUSD'),('USDG'),('USDP'),('GUSD'),('USD1'),('USDD')) as a(asset)
 on conflict (user_id, asset) do nothing;
 
 update public.demo_wallets
@@ -383,8 +393,8 @@ begin
   if v_user is null then raise exception 'Sign in is required.'; end if;
   if public.current_account_status() <> 'active' then raise exception 'Account must be active to convert virtual balances.'; end if;
   if p_from_asset = p_to_asset then raise exception 'Choose two different assets.'; end if;
-  if p_from_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC')
-     or p_to_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC') then
+  if p_from_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD')
+     or p_to_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD') then
     raise exception 'Unsupported virtual asset.';
   end if;
   if p_from_amount is null or p_from_amount <= 0 or p_exchange_rate is null or p_exchange_rate <= 0 then
@@ -432,7 +442,7 @@ begin
   if public.current_account_status() <> 'active' then raise exception 'Account must be active to request a virtual withdrawal.'; end if;
   select coalesce((select ac.withdrawals_paused from public.account_controls ac where ac.user_id = v_user), false) into v_paused;
   if v_paused then raise exception 'Virtual withdrawals are paused for this account.'; end if;
-  if p_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC') then raise exception 'Unsupported virtual asset.'; end if;
+  if p_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD') then raise exception 'Unsupported virtual asset.'; end if;
   if p_amount is null or p_amount <= 0 then raise exception 'Enter a positive amount.'; end if;
   if p_destination is null or char_length(trim(p_destination)) not between 4 and 200 then raise exception 'Enter a destination label between 4 and 200 characters.'; end if;
 
@@ -464,7 +474,7 @@ declare
 begin
   if v_user is null then raise exception 'Sign in is required.'; end if;
   if public.current_account_status() <> 'active' then raise exception 'Account must be active to request a deposit.'; end if;
-  if p_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC') then raise exception 'Unsupported asset.'; end if;
+  if p_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD') then raise exception 'Unsupported asset.'; end if;
   if p_amount is null or p_amount <= 0 or p_amount > 1000000000 then raise exception 'Enter a valid amount.'; end if;
   if p_reference_note is not null and char_length(trim(p_reference_note)) > 200 then raise exception 'Reference note must be 200 characters or fewer.'; end if;
   insert into public.virtual_deposit_requests(id,user_id,asset,amount,reference_note)

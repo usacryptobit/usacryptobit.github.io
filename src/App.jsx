@@ -7,7 +7,7 @@ import ProfilePanel from './ProfilePanel.jsx'
 import NotificationCenter from './NotificationCenter.jsx'
 import SupportMessagesPanel from './SupportMessagesPanel.jsx'
 
-const COINS = ['bitcoin','ethereum','solana','binancecoin','ripple','dogecoin','cardano','avalanche-2','chainlink','polkadot','tron','litecoin']
+const COINS = ['bitcoin','ethereum','solana','binancecoin','ripple','dogecoin','cardano','avalanche-2','chainlink','polkadot','tron','litecoin','tether','usd-coin','dai','usds','ethena-usde','paypal-usd','first-digital-usd','ripple-usd','global-dollar','paxos-standard','gemini-dollar','usd1-wlfi','usdd']
 const FALLBACK = [
   {id:'bitcoin',symbol:'btc',name:'Bitcoin',current_price:67482.18,price_change_percentage_24h:2.84,market_cap:1331000000000,total_volume:28200000000,image:'https://assets.coingecko.com/coins/images/1/large/bitcoin.png'},
   {id:'ethereum',symbol:'eth',name:'Ethereum',current_price:3521.76,price_change_percentage_24h:1.62,market_cap:423000000000,total_volume:13100000000,image:'https://assets.coingecko.com/coins/images/279/large/ethereum.png'},
@@ -27,7 +27,7 @@ const compact = (n) => n == null ? '—' : '$'+new Intl.NumberFormat('en-US',{no
 
 function App(){
   const [coins,setCoins]=useState(FALLBACK),[marketState,setMarketState]=useState('loading'),[query,setQuery]=useState(''),[active,setActive]=useState('Overview'),[user,setUser]=useState(null),[profile,setProfile]=useState(null),[saved,setSaved]=useState([]),[modal,setModal]=useState(false),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[isSignup,setIsSignup]=useState(false),[authError,setAuthError]=useState(''),[authMessage,setAuthMessage]=useState(''),[busy,setBusy]=useState(false),[mobileMenu,setMobileMenu]=useState(false),[toast,setToast]=useState(''),[isAdmin,setIsAdmin]=useState(false),[accountControl,setAccountControl]=useState(null)
-  const refresh=useCallback(async()=>{try{const res=await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COINS.join(',')}&order=market_cap_desc&per_page=12&page=1&sparkline=false`);if(!res.ok)throw new Error('Market feed unavailable');const data=await res.json();if(data.length){setCoins(data);setMarketState('live')}else setMarketState('sample')}catch{setMarketState('sample')}},[])
+  const refresh=useCallback(async()=>{try{const res=await fetch(`https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${COINS.join(',')}&order=market_cap_desc&per_page=50&page=1&sparkline=false`);if(!res.ok)throw new Error('Market feed unavailable');const data=await res.json();if(data.length){setCoins(data);setMarketState('live')}else setMarketState('sample')}catch{setMarketState('sample')}},[])
   useEffect(()=>{refresh();const timer=setInterval(refresh,60000);return()=>clearInterval(timer)},[refresh])
   useEffect(()=>{if(!supabaseReady)return;supabase.auth.getSession().then(({data})=>setUser(data.session?.user??null));const {data:{subscription}}=supabase.auth.onAuthStateChange((_event,session)=>setUser(session?.user??null));return()=>subscription.unsubscribe()},[])
   useEffect(()=>{if(!user||!supabaseReady){setSaved([]);return}let live=true;supabase.from('watchlist').select('coin_id').eq('user_id',user.id).then(({data,error})=>{if(live&&!error)setSaved(data.map(x=>x.coin_id))});return()=>{live=false}},[user])

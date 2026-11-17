@@ -3,7 +3,7 @@ import { Pause, Play, RefreshCw, Wallet } from 'lucide-react'
 import { supabase } from './supabase'
 
 const fmt = n => Number(n||0).toLocaleString('en-US',{maximumFractionDigits:8})
-const ASSETS=['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC']
+const ASSETS=['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD']
 
 export default function AdminWalletPanel({notify}) {
   const [users,setUsers]=useState([]),[withdrawals,setWithdrawals]=useState([]),[deposits,setDeposits]=useState([]),[loading,setLoading]=useState(true),[working,setWorking]=useState(false),[error,setError]=useState(''),[funding,setFunding]=useState(null),[asset,setAsset]=useState('BTC'),[amount,setAmount]=useState(''),[reason,setReason]=useState('')
