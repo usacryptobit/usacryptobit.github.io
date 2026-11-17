@@ -60,6 +60,7 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   }
   return <section className="wallet-page">
     <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div>
+    <div className="wallet-notice"><ShieldCheck size={19}/><span><b>USACryptoBit Wallet</b> — balances and transactions are real. Wallet IDs is your official USACRYPTOBIT wallet. Deposits, transfers, and withdrawals move cryptocurrency or money.</span></div>
     {accountControl?.status&&accountControl.status!=='active'&&<div className={`account-status-banner account-${accountControl.status}`}><ShieldCheck size={17}/><span>Account {accountControl.status}. Wallet operations require an active account.</span></div>}
     {accountControl?.withdrawals_paused&&<div className="account-status-banner account-restricted"><ShieldCheck size={17}/><span>Withdrawal requests are paused. {accountControl.withdrawal_pause_reason}</span></div>}
     {error&&<div className="admin-error">{error}</div>}
