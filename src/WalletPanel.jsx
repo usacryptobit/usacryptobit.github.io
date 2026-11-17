@@ -32,9 +32,16 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   const depositWallet=wallets.find(w=>w.asset===depositAsset)
   const perform=async(fn,args,success)=>{
     setBusy(true);setError('')
-    const {error:rpcError}=await supabase.rpc(fn,args)
+    const {data,error:rpcError}=await supabase.rpc(fn,args)
     if(rpcError){setError(rpcError.message);setBusy(false);return false}
-    notify(success);await load();setBusy(false);return true
+    notify(success);await load();setBusy(false);return data??true
+  }
+  const emailRequestUpdate=async(event,requestId)=>{
+    if(typeof requestId!=='string')return
+    try{
+      const {data,error:emailError}=await supabase.functions.invoke('customer-email',{body:{event,request_id:requestId}})
+      if(emailError||data?.error)notify('Request saved, but its email update could not be sent.')
+    }catch{notify('Request saved, but its email update could not be sent.')}
   }
   const convert=async e=>{
     e.preventDefault()
@@ -43,15 +50,17 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   }
   const requestDeposit=async e=>{
     e.preventDefault()
-    if(await perform('virtual_request_deposit',{p_asset:depositAsset,p_amount:Number(depositAmount),p_reference_note:depositReference||null},'Deposit request submitted')){setDepositAmount('');setDepositReference('')}
+    const requestId=await perform('virtual_request_deposit',{p_asset:depositAsset,p_amount:Number(depositAmount),p_reference_note:depositReference||null},'Deposit request submitted')
+    if(requestId){setDepositAmount('');setDepositReference('');await emailRequestUpdate('deposit_submitted',requestId)}
   }
   const withdraw=async e=>{
     e.preventDefault()
-    if(await perform('demo_request_withdrawal',{p_asset:withdrawAsset,p_amount:Number(withdrawAmount),p_destination:destination},'Withdrawal request submitted')){setWithdrawAmount('');setDestination('')}
+    const requestId=await perform('demo_request_withdrawal',{p_asset:withdrawAsset,p_amount:Number(withdrawAmount),p_destination:destination},'Withdrawal request submitted')
+    if(requestId){setWithdrawAmount('');setDestination('');await emailRequestUpdate('withdrawal_submitted',requestId)}
   }
   return <section className="wallet-page">
     <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div>
-    <div className="wallet-notice"><ShieldCheck size={19}/><span><b>Virtual Wallet</b> — balances and transactions are simulated. Wallet IDs are for display only. Deposits, transfers, and withdrawals do not move cryptocurrency or money.</span></div>
+    <div className="wallet-notice"><ShieldCheck size={19}/><span><b>Prank Wallet</b> — balances and transactions are simulated. Wallet IDs are for display only. Deposits, transfers, and withdrawals do not move cryptocurrency or money.</span></div>
     {accountControl?.status&&accountControl.status!=='active'&&<div className={`account-status-banner account-${accountControl.status}`}><ShieldCheck size={17}/><span>Account {accountControl.status}. Wallet operations require an active account.</span></div>}
     {accountControl?.withdrawals_paused&&<div className="account-status-banner account-restricted"><ShieldCheck size={17}/><span>Withdrawal requests are paused. {accountControl.withdrawal_pause_reason}</span></div>}
     {error&&<div className="admin-error">{error}</div>}
