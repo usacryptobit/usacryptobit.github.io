@@ -62,6 +62,16 @@ create table if not exists public.demo_wallets (
   unique (demo_address)
 );
 
+-- Customer-supplied public addresses are saved as an address book only.
+create table if not exists public.customer_external_wallets (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD')),
+  network text not null check (char_length(trim(network)) between 2 and 40),
+  address text not null check (char_length(trim(address)) between 4 and 200),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, asset)
+);
+
 create table if not exists public.demo_wallet_ledger (
   id bigint generated always as identity primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -128,6 +138,7 @@ alter table public.user_roles enable row level security;
 alter table public.account_controls enable row level security;
 alter table public.admin_action_log enable row level security;
 alter table public.demo_wallets enable row level security;
+alter table public.customer_external_wallets enable row level security;
 alter table public.demo_wallet_ledger enable row level security;
 alter table public.demo_withdrawals enable row level security;
 alter table public.virtual_deposit_requests enable row level security;
@@ -180,6 +191,19 @@ create policy "Users can view their own account status" on public.account_contro
 drop policy if exists "Users can view their own demo wallets" on public.demo_wallets;
 create policy "Users can view their own demo wallets" on public.demo_wallets
   for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "Users can view their own external wallet addresses" on public.customer_external_wallets;
+create policy "Users can view their own external wallet addresses" on public.customer_external_wallets
+  for select to authenticated using ((select auth.uid()) = user_id);
+drop policy if exists "Users can add their own external wallet addresses" on public.customer_external_wallets;
+create policy "Users can add their own external wallet addresses" on public.customer_external_wallets
+  for insert to authenticated with check ((select auth.uid()) = user_id);
+drop policy if exists "Users can update their own external wallet addresses" on public.customer_external_wallets;
+create policy "Users can update their own external wallet addresses" on public.customer_external_wallets
+  for update to authenticated using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+drop policy if exists "Users can delete their own external wallet addresses" on public.customer_external_wallets;
+create policy "Users can delete their own external wallet addresses" on public.customer_external_wallets
+  for delete to authenticated using ((select auth.uid()) = user_id);
 drop policy if exists "Users can view their own demo wallet ledger" on public.demo_wallet_ledger;
 create policy "Users can view their own demo wallet ledger" on public.demo_wallet_ledger
   for select to authenticated using ((select auth.uid()) = user_id);
@@ -218,6 +242,7 @@ grant select, update on public.profiles to authenticated;
 grant select, insert, delete on public.watchlist to authenticated;
 grant select on public.user_roles, public.account_controls to authenticated;
 grant select on public.demo_wallets, public.demo_wallet_ledger, public.demo_withdrawals to authenticated;
+grant select, insert, update, delete on public.customer_external_wallets to authenticated;
 grant select on public.virtual_deposit_requests to authenticated;
 revoke insert, update, delete on public.user_roles, public.account_controls from anon, authenticated;
 revoke insert, update, delete on public.demo_wallets, public.demo_wallet_ledger, public.demo_withdrawals from anon, authenticated;

@@ -271,3 +271,5 @@ tbody tr:hover{background:#151f28}
   .support-back{display:grid}
 }
 
+
+.external-wallet-form{display:grid;gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid #26313a}.external-wallet-form>span{font-size:8px;color:#94a3ad;text-transform:uppercase;letter-spacing:.5px}.external-wallet-form input{width:100%;min-width:0;height:30px;background:#0b1117;border:1px solid #2b3741;border-radius:4px;padding:0 7px;color:#e7ecef;font-size:8px;outline:none}.external-wallet-form input:focus{border-color:#8da958}.external-wallet-form button{min-height:27px;border:1px solid #425336;border-radius:4px;background:#19241a;color:#c8f27b;font-size:8px;cursor:pointer}.external-wallet-form button:disabled{opacity:.55;cursor:wait}.external-wallet-form .external-wallet-remove{background:transparent;border-color:#3b4147;color:#a5afb8}
