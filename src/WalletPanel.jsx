@@ -9,27 +9,47 @@ const statusClass = status => status === 'approved' ? 'active' : status === 'rej
 const activityLabel = value => (value||'').replace(/demo/gi,'').replaceAll('_',' ').replace(/\s+/g,' ').trim()
 
 export default function WalletPanel({coins,currentUser,notify,accountControl}) {
-  const [wallets,setWallets]=useState([]),[ledger,setLedger]=useState([]),[withdrawals,setWithdrawals]=useState([]),[deposits,setDeposits]=useState([]),[externalWallets,setExternalWallets]=useState([])
+  const [wallets,setWallets]=useState([]),[ledger,setLedger]=useState([]),[withdrawals,setWithdrawals]=useState([]),[withdrawalStats,setWithdrawalStats]=useState([]),[deposits,setDeposits]=useState([]),[externalWallets,setExternalWallets]=useState([])
+  const [walletQuery,setWalletQuery]=useState(''),[walletFilter,setWalletFilter]=useState('all'),[walletSort,setWalletSort]=useState('asset')
   const [from,setFrom]=useState('BTC'),[to,setTo]=useState('ETH'),[convertAmount,setConvertAmount]=useState('')
   const [depositAsset,setDepositAsset]=useState('BTC'),[depositAmount,setDepositAmount]=useState(''),[depositReference,setDepositReference]=useState('')
   const [withdrawAsset,setWithdrawAsset]=useState('BTC'),[withdrawAmount,setWithdrawAmount]=useState(''),[destination,setDestination]=useState('')
   const [busy,setBusy]=useState(false),[error,setError]=useState('')
   const load=useCallback(async()=>{
     if(!currentUser)return
-    const [w,l,d,dep,external]=await Promise.all([
+    const [w,l,d,dep,external,withdrawalTotals]=await Promise.all([
       supabase.from('demo_wallets').select('*').order('asset'),
       supabase.from('demo_wallet_ledger').select('*').order('created_at',{ascending:false}).limit(12),
       supabase.from('demo_withdrawals').select('*').order('created_at',{ascending:false}).limit(8),
       supabase.from('virtual_deposit_requests').select('*').order('created_at',{ascending:false}).limit(8),
       supabase.from('customer_external_wallets').select('asset,network,address,updated_at').order('asset'),
+      supabase.from('demo_withdrawals').select('asset,amount').order('created_at',{ascending:false}).limit(1000),
     ])
-    if(w.error||l.error||d.error||dep.error||external.error){setError('Wallet data is unavailable. Run the updated Supabase SQL schema.');return}
-    setWallets(w.data??[]);setLedger(l.data??[]);setWithdrawals(d.data??[]);setDeposits(dep.data??[]);setExternalWallets(external.data??[])
+    if(w.error||l.error||d.error||dep.error||external.error||withdrawalTotals.error){setError('Wallet data is unavailable. Run the updated Supabase SQL schema.');return}
+    setWallets(w.data??[]);setLedger(l.data??[]);setWithdrawals(d.data??[]);setDeposits(dep.data??[]);setExternalWallets(external.data??[]);setWithdrawalStats(withdrawalTotals.data??[])
   },[currentUser])
   useEffect(()=>{load()},[load])
   const prices=useMemo(()=>Object.fromEntries([...['USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'].map(symbol=>[symbol,1]),...coins.map(c=>[c.symbol.toUpperCase(),c.current_price])]),[coins])
   const quote=Number(convertAmount)>0&&prices[from]&&prices[to]?Number(convertAmount)*prices[from]/prices[to]*.995:0
   const totalUsd=wallets.reduce((sum,w)=>sum+Number(w.available||0)*Number(prices[w.asset]||0),0)
+  const visibleWallets=useMemo(()=>{
+    const rows=wallets.filter(w=>{
+      const matchesQuery=w.asset.toLowerCase().includes(walletQuery.trim().toLowerCase())
+      const matchesFilter=walletFilter==='all'||(walletFilter==='available'&&Number(w.available)>0)||(walletFilter==='held'&&Number(w.held)>0)||(walletFilter==='external'&&externalWallets.some(row=>row.asset===w.asset))
+      return matchesQuery&&matchesFilter
+    })
+    const withdrawalCounts=new Map(),withdrawnValues=new Map()
+    for(const row of withdrawalStats){withdrawalCounts.set(row.asset,(withdrawalCounts.get(row.asset)||0)+1);withdrawnValues.set(row.asset,(withdrawnValues.get(row.asset)||0)+Number(row.amount||0)*Number(prices[row.asset]||0))}
+    return rows.sort((a,b)=>{
+      if(walletSort==='available-desc')return Number(b.available)-Number(a.available)
+      if(walletSort==='available-asc')return Number(a.available)-Number(b.available)
+      if(walletSort==='value-desc')return Number(b.available)*Number(prices[b.asset]||0)-Number(a.available)*Number(prices[a.asset]||0)
+      if(walletSort==='held-desc')return Number(b.held)-Number(a.held)
+      if(walletSort==='withdrawals-desc')return (withdrawalCounts.get(b.asset)||0)-(withdrawalCounts.get(a.asset)||0)
+      if(walletSort==='withdrawn-desc')return (withdrawnValues.get(b.asset)||0)-(withdrawnValues.get(a.asset)||0)
+      return a.asset.localeCompare(b.asset)
+    })
+  },[wallets,walletQuery,walletFilter,walletSort,externalWallets,withdrawalStats,prices])
   const depositWallet=wallets.find(w=>w.asset===depositAsset)
   const perform=async(fn,args,success)=>{
     setBusy(true);setError('')
@@ -84,7 +104,8 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
     {accountControl?.withdrawals_paused&&<div className="account-status-banner account-restricted"><ShieldCheck size={17}/><span>Withdrawal requests are paused. {accountControl.withdrawal_pause_reason}</span></div>}
     {error&&<div className="admin-error">{error}</div>}
     <div className="wallet-summary"><span>Total wallet value</span><strong>{usd(totalUsd)}</strong><small>Across {wallets.length} assets</small></div>
-    <div className="wallet-grid">{wallets.map(w=>{const external=externalWallets.find(row=>row.asset===w.asset);return <article className="wallet-card" key={w.asset}><div className="wallet-card-top"><span className="wallet-coin-icon">{w.asset.slice(0,1)}</span></div><b>{w.asset}</b><strong>{amount(w.available)}</strong><span>Available balance</span><small>On hold: {amount(w.held)}</small><span className="wallet-id-label">Wallet ID</span><code title="Display ID only">{w.asset}-{w.user_id.replaceAll('-','').slice(0,12).toUpperCase()}</code><small className="wallet-usd-value">{usd(Number(w.available)*Number(prices[w.asset]||0))}</small><form className="external-wallet-form" onSubmit={e=>saveExternalWallet(e,w.asset)}><span>External wallet reference</span><input name="network" aria-label={`${w.asset} network`} required minLength="2" maxLength="40" placeholder="Network (e.g. Ethereum)" defaultValue={external?.network||''}/><input name="address" aria-label={`${w.asset} public address`} required minLength="4" maxLength="200" placeholder="Public wallet address" defaultValue={external?.address||''}/><button type="submit" disabled={busy}>{busy?'Saving…':external?'Update address':'Save address'}</button>{external&&<button type="button" className="external-wallet-remove" disabled={busy} onClick={()=>removeExternalWallet(w.asset)}>Remove</button>}</form></article>})}</div>
+    <div className="wallet-asset-tools"><label className="wallet-search"><span>Find asset</span><input value={walletQuery} onChange={e=>setWalletQuery(e.target.value)} placeholder="Search by symbol, e.g. BTC"/></label><label><span>Filter</span><select value={walletFilter} onChange={e=>setWalletFilter(e.target.value)}><option value="all">All assets</option><option value="available">Has available balance</option><option value="held">Has balance on hold</option><option value="external">External address saved</option></select></label><label><span>Sort by</span><select value={walletSort} onChange={e=>setWalletSort(e.target.value)}><option value="asset">Alphabetical</option><option value="available-desc">Available balance: highest</option><option value="available-asc">Available balance: lowest</option><option value="value-desc">USD value: highest</option><option value="held-desc">On hold: highest</option><option value="withdrawals-desc">Most withdrawal requests</option><option value="withdrawn-desc">Withdrawal value (USD): highest</option></select></label><span className="wallet-result-count">{visibleWallets.length} of {wallets.length} assets</span></div>
+    <div className="wallet-grid">{visibleWallets.map(w=>{const external=externalWallets.find(row=>row.asset===w.asset);return <article className="wallet-card" key={w.asset}><div className="wallet-card-top"><span className="wallet-coin-icon">{w.asset.slice(0,1)}</span></div><b>{w.asset}</b><strong>{amount(w.available)}</strong><span>Available balance</span><small>On hold: {amount(w.held)}</small><span className="wallet-id-label">Wallet ID</span><code title="Display ID only">{w.asset}-{w.user_id.replaceAll('-','').slice(0,12).toUpperCase()}</code><small className="wallet-usd-value">{usd(Number(w.available)*Number(prices[w.asset]||0))}</small><form className="external-wallet-form" onSubmit={e=>saveExternalWallet(e,w.asset)}><span>External wallet reference</span><input name="network" aria-label={`${w.asset} network`} required minLength="2" maxLength="40" placeholder="Network (e.g. Ethereum)" defaultValue={external?.network||''}/><input name="address" aria-label={`${w.asset} public address`} required minLength="4" maxLength="200" placeholder="Public wallet address" defaultValue={external?.address||''}/><button type="submit" disabled={busy}>{busy?'Saving…':external?'Update address':'Save address'}</button>{external&&<button type="button" className="external-wallet-remove" disabled={busy} onClick={()=>removeExternalWallet(w.asset)}>Remove</button>}</form></article>})}{!visibleWallets.length&&<div className="wallet-filter-empty">No assets match these search and filter settings.</div>}</div>
     <div className="wallet-actions-grid">
       <form className="wallet-form-card" onSubmit={requestDeposit}>
         <div className="section-title"><div><span className="section-eyebrow">ADD FUNDS</span><h3>Deposit</h3></div><Wallet size={19}/></div>
