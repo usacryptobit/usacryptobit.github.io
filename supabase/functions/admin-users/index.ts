@@ -105,6 +105,18 @@ Deno.serve(async (request) => {
     return json({ ok: true })
   }
 
+  if (body.action === 'reset_virtual_wallet') {
+    const userId = body.user_id
+    const reason = body.reason?.trim() ?? ''
+    if (!userId || reason.length < 3 || reason.length > 500) return json({ error: 'Choose a customer and enter a reason between 3 and 500 characters.' }, 400)
+    const { data: targetRole, error: targetRoleError } = await admin.from('user_roles').select('role').eq('user_id', userId).maybeSingle()
+    if (targetRoleError) return json({ error: 'Could not verify the customer role.' }, 500)
+    if (userId === actor.id || targetRole?.role === 'admin') return json({ error: 'Administrator wallets cannot be reset here.' }, 403)
+    const { error } = await admin.rpc('admin_reset_virtual_wallet', { p_admin_id: actor.id, p_user_id: userId, p_reason: reason })
+    if (error) return json({ error: error.message }, 502)
+    return json({ ok: true })
+  }
+
   if (body.action === 'review_virtual_withdrawal') {
     const decisionMap: Record<string, string> = { hold: 'hold', release: 'release', approve: 'approve', reject: 'reject' }
     const decision = decisionMap[body.decision ?? '']

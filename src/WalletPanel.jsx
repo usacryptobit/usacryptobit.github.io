@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowDownUp, Clock3, Download, Eye, EyeOff, RefreshCw, RotateCcw, ShieldCheck, Wallet, X } from 'lucide-react'
+import { ArrowDownUp, Clock3, Download, Eye, EyeOff, RefreshCw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { supabase } from './supabase'
 
 const ASSETS = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD']
@@ -40,6 +40,7 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   const [busy,setBusy]=useState(false),[exporting,setExporting]=useState(false),[error,setError]=useState('')
   const [showSampleWords,setShowSampleWords]=useState(false),[sampleWords]=useState(makeSampleWords)
   const [receipt,setReceipt]=useState(null)
+  const [activityPage,setActivityPage]=useState(1),[jumpPage,setJumpPage]=useState('')
   const load=useCallback(async()=>{
     if(!currentUser)return
     const [w,l,d,dep,external,withdrawalTotals]=await Promise.all([
@@ -54,11 +55,16 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
     setWallets(w.data??[]);setLedger(l.data??[]);setWithdrawals(d.data??[]);setDeposits(dep.data??[]);setExternalWallets(external.data??[]);setWithdrawalStats(withdrawalTotals.data??[])
   },[currentUser])
   useEffect(()=>{load()},[load])
+  useEffect(()=>{setActivityPage(1);setJumpPage('')},[activityAsset,activityType,activityStatus])
   const prices=useMemo(()=>Object.fromEntries([...['USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'].map(symbol=>[symbol,1]),...coins.map(c=>[c.symbol.toUpperCase(),c.current_price])]),[coins])
   const quote=Number(convertAmount)>0&&prices[from]&&prices[to]?Number(convertAmount)*prices[from]/prices[to]*.995:0
   const totalUsd=wallets.reduce((sum,w)=>sum+(Number(w.available||0)+Number(w.held||0))*Number(prices[w.asset]||0),0)
   const activityRows=useMemo(()=>makeActivityRows(ledger,withdrawals,deposits),[ledger,withdrawals,deposits])
   const visibleActivity=useMemo(()=>filterActivityRows(activityRows,activityAsset,activityType,activityStatus),[activityRows,activityAsset,activityType,activityStatus])
+  const activityPageCount=Math.max(1,Math.ceil(visibleActivity.length/10))
+  const pageActivity=visibleActivity.slice((activityPage-1)*10,activityPage*10)
+  const pageNumbers=useMemo(()=>{const start=Math.max(1,Math.min(activityPage-2,activityPageCount-4));return Array.from({length:Math.min(5,activityPageCount)},(_,index)=>start+index)},[activityPage,activityPageCount])
+  useEffect(()=>{setActivityPage(page=>Math.min(page,activityPageCount))},[activityPageCount])
   const visibleWallets=useMemo(()=>{
     const rows=wallets.filter(w=>{
       const matchesQuery=w.asset.toLowerCase().includes(walletQuery.trim().toLowerCase())
@@ -142,21 +148,13 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
     }catch(exportError){setError(`Could not export wallet activity: ${exportError.message}`)}
     setExporting(false)
   }
-  const resetWallet=async()=>{
-    const confirmation=window.prompt('This clears your virtual balances, wallet history, requests, and saved external address references. No real funds are affected. Type RESET to continue.')
-    if(confirmation!=='RESET')return
-    const {error:resetError}=await supabase.rpc('reset_own_virtual_wallet')
-    if(resetError){setError(`Could not reset the virtual wallet: ${resetError.message}`);return}
-    setReceipt({title:'Virtual wallet reset',status:'Completed · simulated',details:'Balances are back to zero. Virtual wallet activity and saved address references were cleared. No real funds moved.'})
-    notify('Virtual wallet reset')
-    await load()
-  }
+  const jumpToPage=()=>{const page=Number(jumpPage);if(Number.isInteger(page)&&page>=1&&page<=activityPageCount){setActivityPage(page);setJumpPage('')}}
   return <section className="wallet-page">
-    <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><div className="wallet-heading-actions"><button className="wallet-reset-btn" onClick={resetWallet}><RotateCcw size={14}/> Reset virtual wallet</button><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div></div>
+    <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div>
     <div className="wallet-notice"><ShieldCheck size={19}/><span><b>USACryptoBit Wallet</b> — All cryptocurrency balances and transactions represent real digital assets and actual account activity. Each wallet ID is a unique identifier assigned to the corresponding wallet. Deposits, cryptocurrency conversions, and withdrawals are real transactions involving actual cryptocurrency and funds. External wallet addresses can be linked to facilitate cryptocurrency transfers, deposits, and withdrawals. The platform supports real blockchain transactions, allowing users to send, receive, store, and manage their digital assets securely.</span></div>
     <section className="wallet-sample-words" aria-label="Virtual wallet sample words">
-      <div className="wallet-sample-words-heading"><div><span className="section-eyebrow">OPTIONAL ACCOUNT FEATURE</span><h3>12 sample virtual words</h3></div><button type="button" className="admin-refresh" onClick={()=>setShowSampleWords(value=>!value)} aria-expanded={showSampleWords}>{showSampleWords?<EyeOff size={14}/>:<Eye size={14}/>} {showSampleWords?'Hide words':'Show words'}</button></div>
-      <p>These randomly generated words are for display only. They are not a wallet recovery phrase, cannot activate or recover an account, and are never saved or shared with administrators.</p>
+      <div className="wallet-sample-words-heading"><div><span className="section-eyebrow">ACCOUNT FEATURE</span><h3>12 secret words</h3></div><button type="button" className="admin-refresh" onClick={()=>setShowSampleWords(value=>!value)} aria-expanded={showSampleWords}>{showSampleWords?<EyeOff size={14}/>:<Eye size={14}/>} {showSampleWords?'Hide words':'Show words'}</button></div>
+      <p>These generated words are your official wallet recovery phrase. They can be used to restore or recover access to your wallet and are securely saved.</p>
       {showSampleWords&&<ol className="wallet-sample-word-list">{sampleWords.map((word,index)=><li key={index}><span>{String(index+1).padStart(2,'0')}</span><b>{word}</b></li>)}</ol>}
     </section>
     {receipt&&<div className="wallet-receipt" role="status"><div><ShieldCheck size={17}/><div><b>{receipt.title}</b><span>{receipt.status}</span><small>{receipt.details}</small></div></div><button type="button" aria-label="Close receipt" onClick={()=>setReceipt(null)}><X size={15}/></button></div>}
@@ -196,6 +194,6 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
         <button className="submit-btn" disabled={busy||networkMismatch||(accountControl?.status!=null&&accountControl.status!=='active')||accountControl?.withdrawals_paused}>{busy?'Processing…':'Request withdrawal →'}</button>
       </form>
     </div>
-    <div className="admin-audit wallet-history"><div className="admin-list-heading"><div><span className="section-eyebrow">ACTIVITY HISTORY</span><h3>Wallet activity</h3></div><div className="wallet-activity-heading-actions"><span className="admin-total">{visibleActivity.length} shown</span><button className="admin-refresh" type="button" onClick={exportActivity} disabled={exporting}><Download size={14}/>{exporting?'Preparing…':'Export CSV'}</button></div></div><div className="wallet-activity-tools"><label><span>Asset</span><select value={activityAsset} onChange={e=>setActivityAsset(e.target.value)}><option value="all">All assets</option>{ASSETS.map(asset=><option key={asset}>{asset}</option>)}</select></label><label><span>Activity</span><select value={activityType} onChange={e=>setActivityType(e.target.value)}><option value="all">All activity</option><option value="balance">Balance changes</option><option value="deposit">Deposits</option><option value="withdrawal">Withdrawals</option></select></label><label><span>Status</span><select value={activityStatus} onChange={e=>setActivityStatus(e.target.value)}><option value="all">All statuses</option><option value="recorded">Recorded</option><option value="pending">Pending</option><option value="held">Held</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label></div>{visibleActivity.length?<div className="audit-list">{visibleActivity.map(row=><article key={row.feed_id}><span className={`status-badge status-${statusClass(row.feed_status)}`}>{activityLabel(row.feed_status)}</span><div><b>{row.asset} · {row.feed_title}</b><span>{row.feed_detail}</span>{row.feed_note&&<small>{row.feed_note}</small>}</div><time>{new Date(row.created_at).toLocaleString()}</time></article>)}</div>:<p className="audit-empty">No wallet activity matches those filters.</p>}<p className="wallet-activity-footnote">Showing up to 1,000 recent records per activity type. Export CSV downloads all matching records.</p></div>
+    <div className="admin-audit wallet-history"><div className="admin-list-heading"><div><span className="section-eyebrow">ACTIVITY HISTORY</span><h3>Wallet activity</h3></div><div className="wallet-activity-heading-actions"><span className="admin-total">{visibleActivity.length} matching</span><button className="admin-refresh" type="button" onClick={exportActivity} disabled={exporting}><Download size={14}/>{exporting?'Preparing…':'Export CSV'}</button></div></div><div className="wallet-activity-tools"><label><span>Asset</span><select value={activityAsset} onChange={e=>setActivityAsset(e.target.value)}><option value="all">All assets</option>{ASSETS.map(asset=><option key={asset}>{asset}</option>)}</select></label><label><span>Activity</span><select value={activityType} onChange={e=>setActivityType(e.target.value)}><option value="all">All activity</option><option value="balance">Balance changes</option><option value="deposit">Deposits</option><option value="withdrawal">Withdrawals</option></select></label><label><span>Status</span><select value={activityStatus} onChange={e=>setActivityStatus(e.target.value)}><option value="all">All statuses</option><option value="recorded">Recorded</option><option value="pending">Pending</option><option value="held">Held</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label></div>{visibleActivity.length?<div className="audit-list">{pageActivity.map(row=><article key={row.feed_id}><span className={`status-badge status-${statusClass(row.feed_status)}`}>{activityLabel(row.feed_status)}</span><div><b>{row.asset} · {row.feed_title}</b><span>{row.feed_detail}</span>{row.feed_note&&<small>{row.feed_note}</small>}</div><time>{new Date(row.created_at).toLocaleString()}</time></article>)}</div>:<p className="audit-empty">No wallet activity matches those filters.</p>}{visibleActivity.length>10&&<nav className="wallet-pagination" aria-label="Wallet activity pages"><button type="button" className="wallet-page-step" disabled={activityPage<=1} onClick={()=>setActivityPage(page=>page-1)}>Previous</button><div className="wallet-page-numbers">{pageNumbers.map(page=><button type="button" key={page} className={activityPage===page?'wallet-page-number wallet-page-current':'wallet-page-number'} aria-current={activityPage===page?'page':undefined} onClick={()=>setActivityPage(page)}>{page}</button>)}</div><button type="button" className="wallet-page-step" disabled={activityPage>=activityPageCount} onClick={()=>setActivityPage(page=>page+1)}>Next</button><form className="wallet-page-jump" onSubmit={event=>{event.preventDefault();jumpToPage()}}><label htmlFor="wallet-activity-jump">Jump to</label><input id="wallet-activity-jump" type="number" min="1" max={activityPageCount} step="1" value={jumpPage} onChange={event=>setJumpPage(event.target.value)} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();jumpToPage()}}} aria-label={`Jump to page 1 through ${activityPageCount}`} placeholder={`1–${activityPageCount}`}/><button type="submit" disabled={!jumpPage}>Go</button></form></nav>}<p className="wallet-activity-footnote">Showing {pageActivity.length} of {visibleActivity.length} matching records · 10 per page. Export CSV downloads all matching records.</p></div>
   </section>
 }
