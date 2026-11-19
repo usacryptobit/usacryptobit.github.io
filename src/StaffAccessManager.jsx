@@ -5,8 +5,8 @@ import { supabase } from './supabase'
 const PERMISSIONS=[
   {id:'customer_access',title:'Customer access',description:'Restrict, suspend, and restore assigned customer accounts.'},
   {id:'support_messages',title:'Support messages',description:'Read and reply to conversations for assigned customers.'},
-  {id:'wallet_funding',title:'Virtual wallet funding',description:'Add simulated units to assigned customer balances.'},
-  {id:'wallet_requests',title:'Deposit and withdrawal review',description:'Review assigned customers’ simulated requests and pause withdrawals.'},
+  {id:'wallet_funding',title:'Wallet funding',description:'Add balance to assigned customer accounts.'},
+  {id:'wallet_requests',title:'Deposit and withdrawal review',description:'Review assigned customers’ requests and pause withdrawals.'},
 ]
 
 export default function StaffAccessManager({users=[],notify,onSaved}){
