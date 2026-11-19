@@ -52,7 +52,7 @@ Deno.serve(async (request) => {
     const [{ data: controls, error: controlsError }, { data: roles, error: rolesError }, { data: actions, error: actionsError }, { data: wallets, error: walletsError }, { data: withdrawals, error: withdrawalsError }, { data: deposits, error: depositsError }] = await Promise.all([
       admin.from('account_controls').select('user_id,status,reason,suspended_until,updated_at,withdrawals_paused,withdrawal_pause_reason'),
       admin.from('user_roles').select('user_id,role'),
-      admin.from('admin_action_log').select('id,admin_id,target_user_id,action,reason,created_at').order('created_at', { ascending: false }).limit(40),
+      admin.from('admin_action_log').select('id,admin_id,target_user_id,action,reason,created_at').order('created_at', { ascending: false }).limit(200),
       admin.from('demo_wallets').select('user_id,asset,available,held'),
       admin.from('demo_withdrawals').select('*').order('created_at', { ascending: false }).limit(100),
       admin.from('virtual_deposit_requests').select('*').order('created_at', { ascending: false }).limit(100),

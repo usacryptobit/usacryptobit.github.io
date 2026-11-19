@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Eye, EyeOff, ImagePlus, Save, ShieldCheck, UserRound, X } from 'lucide-react'
+import { Download, Eye, EyeOff, ImagePlus, KeyRound, Save, ShieldCheck, UserRound, X } from 'lucide-react'
 import { supabase } from './supabase'
 
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024
@@ -21,6 +21,18 @@ export default function ProfilePanel({ currentUser, profile, onProfileChange, no
   const [passwordBusy, setPasswordBusy] = useState(false)
   const [passwordError, setPasswordError] = useState('')
   const [passwordMessage, setPasswordMessage] = useState('')
+  const [mfaFactors,setMfaFactors]=useState([])
+  const [mfaSetup,setMfaSetup]=useState(null)
+  const [mfaCode,setMfaCode]=useState('')
+  const [mfaBusy,setMfaBusy]=useState(false)
+  const [mfaError,setMfaError]=useState('')
+  const [exportBusy,setExportBusy]=useState(false)
+
+  const loadMfaFactors=async()=>{
+    const {data,error}=await supabase.auth.mfa.listFactors()
+    if(error){setMfaError(error.message);return}
+    setMfaFactors(data?.totp??[])
+  }
 
   useEffect(() => {
     setDisplayName(profile?.display_name || '')
@@ -28,6 +40,8 @@ export default function ProfilePanel({ currentUser, profile, onProfileChange, no
     setShowMarketMovers(profile?.show_market_movers !== false)
     setAvatarPath(profile?.avatar_path || '')
   }, [profile])
+
+  useEffect(()=>{loadMfaFactors()},[])
 
   useEffect(() => {
     if (!file) { setPreview(''); return }
@@ -100,6 +114,63 @@ export default function ProfilePanel({ currentUser, profile, onProfileChange, no
     finally{setPasswordBusy(false)}
   }
 
+  const beginMfaSetup=async()=>{
+    setMfaBusy(true);setMfaError('')
+    try{
+      const {data,error}=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:'USACryptoBit authenticator'})
+      if(error)throw error
+      setMfaSetup(data);setMfaCode('')
+    }catch(error){setMfaError(error.message||'Could not start two-factor setup.')}
+    finally{setMfaBusy(false)}
+  }
+
+  const verifyMfaSetup=async event=>{
+    event.preventDefault();if(!mfaSetup)return
+    setMfaBusy(true);setMfaError('')
+    try{
+      const {data:challenge,error:challengeError}=await supabase.auth.mfa.challenge({factorId:mfaSetup.id})
+      if(challengeError)throw challengeError
+      const {error}=await supabase.auth.mfa.verify({factorId:mfaSetup.id,challengeId:challenge.id,code:mfaCode.trim()})
+      if(error)throw error
+      setMfaSetup(null);setMfaCode('');await loadMfaFactors();notify('Two-factor authentication enabled')
+    }catch(error){setMfaError(error.message||'The authenticator code could not be verified.')}
+    finally{setMfaBusy(false)}
+  }
+
+  const cancelMfaSetup=async()=>{
+    if(!mfaSetup){setMfaSetup(null);return}
+    setMfaBusy(true);setMfaError('')
+    try{const {error}=await supabase.auth.mfa.unenroll({factorId:mfaSetup.id});if(error)throw error;setMfaSetup(null);setMfaCode('');await loadMfaFactors()}
+    catch(error){setMfaError(error.message||'Could not cancel authenticator setup.')}
+    finally{setMfaBusy(false)}
+  }
+
+  const disableMfa=async factorId=>{
+    if(!window.confirm('Disable two-factor authentication for this account?'))return
+    setMfaBusy(true);setMfaError('')
+    try{const {error}=await supabase.auth.mfa.unenroll({factorId});if(error)throw error;await loadMfaFactors();notify('Two-factor authentication disabled')}
+    catch(error){setMfaError(error.message||'Could not disable two-factor authentication.')}
+    finally{setMfaBusy(false)}
+  }
+
+  const exportAccountData=async()=>{
+    setExportBusy(true);setError('')
+    try{
+      const tables=['profiles','watchlist','demo_wallets','customer_external_wallets','demo_wallet_ledger','demo_withdrawals','virtual_deposit_requests']
+      const results=await Promise.all(tables.map(table=>supabase.from(table).select('*').eq(table==='profiles'?'id':'user_id',currentUser.id)))
+      const failed=results.find(result=>result.error)
+      if(failed)throw failed.error
+      const {data:conversations,error:conversationError}=await supabase.from('support_conversations').select('*').eq('customer_id',currentUser.id)
+      if(conversationError)throw conversationError
+      const conversationIds=(conversations??[]).map(row=>row.id)
+      const {data:messages,error:messagesError}=conversationIds.length?await supabase.from('support_messages').select('*').in('conversation_id',conversationIds):{data:[],error:null}
+      if(messagesError)throw messagesError
+      const payload={exported_at:new Date().toISOString(),account:{id:currentUser.id,email:currentUser.email},notice:'Wallet activity and balances in this export are simulated. No authentication secrets are included.',data:{...Object.fromEntries(tables.map((table,index)=>[table,results[index].data??[]])),support_conversations:conversations??[],support_messages:messages??[]}}
+      const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='usacryptobit-account-data.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('Account data exported')
+    }catch(error){setError(`Could not export account data: ${error.message}`)}
+    finally{setExportBusy(false)}
+  }
+
   const removePicture = () => { setAvatarPath(''); setFile(null); setPreview('') }
 
   return <section className="profile-page">
@@ -127,5 +198,13 @@ export default function ProfilePanel({ currentUser, profile, onProfileChange, no
       {passwordError&&<div className="form-error">{passwordError}</div>}{passwordMessage&&<div className="form-message">{passwordMessage}</div>}
       <div className="profile-actions"><button className="submit-btn" disabled={passwordBusy}><ShieldCheck size={15}/>{passwordBusy?'Updating…':'Update password'}</button></div>
     </form>
+    <section className="profile-card profile-security-card">
+      <div className="profile-section-heading"><div><span className="section-eyebrow">SIGN-IN PROTECTION</span><h2>Two-factor authentication</h2></div><KeyRound size={19}/></div>
+      <p className="profile-security-copy">Use an authenticator app to generate a one-time code when signing in. Only you can scan and verify the setup code.</p>
+      {mfaError&&<div className="form-error">{mfaError}</div>}
+      {mfaFactors.filter(factor=>factor.status==='verified').map(factor=><div className="mfa-factor-row" key={factor.id}><span><ShieldCheck size={15}/> Authenticator app enabled</span><button type="button" className="wallet-reset-btn" disabled={mfaBusy} onClick={()=>disableMfa(factor.id)}>Disable</button></div>)}
+      {mfaSetup?<form className="mfa-setup" onSubmit={verifyMfaSetup}><p>Scan this QR code with an authenticator app, then enter its current six-digit code to finish setup.</p><img className="mfa-qr" alt="Authenticator setup QR code" src={`data:image/svg+xml;utf8,${encodeURIComponent(mfaSetup.totp.qr_code)}`}/><label className="profile-field">Setup key<input readOnly value={mfaSetup.totp.secret}/></label><label className="profile-field">Authenticator code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={mfaCode} onChange={event=>setMfaCode(event.target.value.replace(/\D/g,''))} placeholder="6-digit code"/></label><div className="profile-actions"><button className="submit-btn" disabled={mfaBusy}>{mfaBusy?'Verifying…':'Verify and enable'}</button><button type="button" className="cancel-btn" disabled={mfaBusy} onClick={cancelMfaSetup}>Cancel setup</button></div><small className="mfa-private-note">Keep this setup key private. Support staff and administrators will never ask for it.</small></form>:mfaFactors.some(factor=>factor.status==='verified')?null:<button type="button" className="submit-btn" disabled={mfaBusy} onClick={beginMfaSetup}><KeyRound size={15}/>{mfaBusy?'Starting setup…':'Set up authenticator'}</button>}
+    </section>
+    <section className="profile-card profile-export-card"><div className="profile-section-heading"><div><span className="section-eyebrow">YOUR INFORMATION</span><h2>Export account data</h2></div><Download size={19}/></div><p className="profile-security-copy">Download your profile, watchlist, virtual wallet records, saved address references, and support messages as a JSON file.</p><button type="button" className="admin-refresh" disabled={exportBusy} onClick={exportAccountData}><Download size={14}/>{exportBusy?'Preparing export…':'Download account data'}</button></section>
   </section>
 }

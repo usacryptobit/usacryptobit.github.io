@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowDownUp, Clock3, Download, Eye, EyeOff, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { ArrowDownUp, Clock3, Download, Eye, EyeOff, RefreshCw, RotateCcw, ShieldCheck, Wallet, X } from 'lucide-react'
 import { supabase } from './supabase'
 
 const ASSETS = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD']
@@ -39,6 +39,7 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   const [activityAsset,setActivityAsset]=useState('all'),[activityType,setActivityType]=useState('all'),[activityStatus,setActivityStatus]=useState('all')
   const [busy,setBusy]=useState(false),[exporting,setExporting]=useState(false),[error,setError]=useState('')
   const [showSampleWords,setShowSampleWords]=useState(false),[sampleWords]=useState(makeSampleWords)
+  const [receipt,setReceipt]=useState(null)
   const load=useCallback(async()=>{
     if(!currentUser)return
     const [w,l,d,dep,external,withdrawalTotals]=await Promise.all([
@@ -114,18 +115,19 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   const convert=async e=>{
     e.preventDefault()
     if(!prices[from]||!prices[to]){setError('A live price quote is not available yet.');return}
-    if(await perform('demo_convert',{p_from_asset:from,p_to_asset:to,p_from_amount:Number(convertAmount),p_exchange_rate:prices[from]/prices[to]},'Conversion completed'))setConvertAmount('')
+    const converted=await perform('demo_convert',{p_from_asset:from,p_to_asset:to,p_from_amount:Number(convertAmount),p_exchange_rate:prices[from]/prices[to]},'Conversion completed')
+    if(converted!==false){setReceipt({title:'Conversion receipt',status:'Completed · simulated',details:`${amount(Number(convertAmount))} ${from} converted to ${amount(converted)} ${to}. No cryptocurrency or money moved.`});setConvertAmount('')}
   }
   const requestDeposit=async e=>{
     e.preventDefault()
     const requestId=await perform('virtual_request_deposit',{p_asset:depositAsset,p_amount:Number(depositAmount),p_reference_note:depositReference||null},'Deposit request submitted')
-    if(requestId){setDepositAmount('');setDepositReference('');await emailRequestUpdate('deposit_submitted',requestId)}
+    if(requestId){setReceipt({title:'Deposit request receipt',status:'Pending administrator review · simulated',details:`${amount(depositAmount)} ${depositAsset} request recorded. This is not proof of a blockchain deposit and no funds were received.`});setDepositAmount('');setDepositReference('');await emailRequestUpdate('deposit_submitted',requestId)}
   }
   const withdraw=async e=>{
     e.preventDefault()
     if(networkMismatch){setError('The selected network does not match the saved address network. Choose the matching network before submitting.');return}
     const requestId=await perform('demo_request_withdrawal',{p_asset:withdrawAsset,p_amount:Number(withdrawAmount),p_destination:destination,p_network:withdrawNetwork.trim()},'Withdrawal request submitted')
-    if(requestId){setWithdrawAmount('');setDestination('');await emailRequestUpdate('withdrawal_submitted',requestId)}
+    if(requestId){setReceipt({title:'Withdrawal request receipt',status:'Pending administrator review · simulated',details:`${amount(withdrawAmount)} ${withdrawAsset} request recorded for ${destination}. It will not send a blockchain transaction or transfer money.`});setWithdrawAmount('');setDestination('');await emailRequestUpdate('withdrawal_submitted',requestId)}
   }
   const exportActivity=async()=>{
     setExporting(true);setError('')
@@ -140,14 +142,24 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
     }catch(exportError){setError(`Could not export wallet activity: ${exportError.message}`)}
     setExporting(false)
   }
+  const resetWallet=async()=>{
+    const confirmation=window.prompt('This clears your virtual balances, wallet history, requests, and saved external address references. No real funds are affected. Type RESET to continue.')
+    if(confirmation!=='RESET')return
+    const {error:resetError}=await supabase.rpc('reset_own_virtual_wallet')
+    if(resetError){setError(`Could not reset the virtual wallet: ${resetError.message}`);return}
+    setReceipt({title:'Virtual wallet reset',status:'Completed · simulated',details:'Balances are back to zero. Virtual wallet activity and saved address references were cleared. No real funds moved.'})
+    notify('Virtual wallet reset')
+    await load()
+  }
   return <section className="wallet-page">
-    <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div>
+    <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><div className="wallet-heading-actions"><button className="wallet-reset-btn" onClick={resetWallet}><RotateCcw size={14}/> Reset virtual wallet</button><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div></div>
     <div className="wallet-notice"><ShieldCheck size={19}/><span><b>USACryptoBit Wallet</b> — All cryptocurrency balances and transactions represent real digital assets and actual account activity. Each wallet ID is a unique identifier assigned to the corresponding wallet. Deposits, cryptocurrency conversions, and withdrawals are real transactions involving actual cryptocurrency and funds. External wallet addresses can be linked to facilitate cryptocurrency transfers, deposits, and withdrawals. The platform supports real blockchain transactions, allowing users to send, receive, store, and manage their digital assets securely.</span></div>
     <section className="wallet-sample-words" aria-label="Virtual wallet sample words">
-      <div className="wallet-sample-words-heading"><div><span className="section-eyebrow">ACCOUNT FEATURE</span><h3>12 secret words</h3></div><button type="button" className="admin-refresh" onClick={()=>setShowSampleWords(value=>!value)} aria-expanded={showSampleWords}>{showSampleWords?<EyeOff size={14}/>:<Eye size={14}/>} {showSampleWords?'Hide words':'Show words'}</button></div>
-      <p>These generated words are your official wallet recovery phrase. They can be used to restore or recover access to your wallet and are securely saved</p>
+      <div className="wallet-sample-words-heading"><div><span className="section-eyebrow">OPTIONAL ACCOUNT FEATURE</span><h3>12 sample virtual words</h3></div><button type="button" className="admin-refresh" onClick={()=>setShowSampleWords(value=>!value)} aria-expanded={showSampleWords}>{showSampleWords?<EyeOff size={14}/>:<Eye size={14}/>} {showSampleWords?'Hide words':'Show words'}</button></div>
+      <p>These randomly generated words are for display only. They are not a wallet recovery phrase, cannot activate or recover an account, and are never saved or shared with administrators.</p>
       {showSampleWords&&<ol className="wallet-sample-word-list">{sampleWords.map((word,index)=><li key={index}><span>{String(index+1).padStart(2,'0')}</span><b>{word}</b></li>)}</ol>}
     </section>
+    {receipt&&<div className="wallet-receipt" role="status"><div><ShieldCheck size={17}/><div><b>{receipt.title}</b><span>{receipt.status}</span><small>{receipt.details}</small></div></div><button type="button" aria-label="Close receipt" onClick={()=>setReceipt(null)}><X size={15}/></button></div>}
     {accountControl?.status&&accountControl.status!=='active'&&<div className={`account-status-banner account-${accountControl.status}`}><ShieldCheck size={17}/><span>Account {accountControl.status}. Wallet operations require an active account.</span></div>}
     {accountControl?.withdrawals_paused&&<div className="account-status-banner account-restricted"><ShieldCheck size={17}/><span>Withdrawal requests are paused. {accountControl.withdrawal_pause_reason}</span></div>}
     {error&&<div className="admin-error">{error}</div>}
