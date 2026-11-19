@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowDownUp, Clock3, Download, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { ArrowDownUp, Clock3, Download, Eye, EyeOff, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
 import { supabase } from './supabase'
 
 const ASSETS = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD']
@@ -23,6 +23,12 @@ const fetchAllRows = async table => {
   }
 }
 const csvCell = value => {let text=String(value??'');if(/^[=+\-@\t\r]/.test(text))text=`'${text}`;return `"${text.replaceAll('"','""')}"`}
+const SAMPLE_WORDS = ['amber','birch','canyon','dawn','ember','fern','glacier','harbor','indigo','juniper','keystone','lantern','meadow','north','opal','prairie','quartz','river','saffron','timber','umber','valley','willow','zenith','acorn','breeze','cedar','drift','elm','frost','grove','horizon']
+const makeSampleWords = () => {
+  const bytes = new Uint8Array(12)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, byte => SAMPLE_WORDS[byte % SAMPLE_WORDS.length])
+}
 
 export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   const [wallets,setWallets]=useState([]),[ledger,setLedger]=useState([]),[withdrawals,setWithdrawals]=useState([]),[withdrawalStats,setWithdrawalStats]=useState([]),[deposits,setDeposits]=useState([]),[externalWallets,setExternalWallets]=useState([])
@@ -32,6 +38,7 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   const [withdrawAsset,setWithdrawAsset]=useState('BTC'),[withdrawAmount,setWithdrawAmount]=useState(''),[destination,setDestination]=useState(''),[withdrawNetwork,setWithdrawNetwork]=useState('')
   const [activityAsset,setActivityAsset]=useState('all'),[activityType,setActivityType]=useState('all'),[activityStatus,setActivityStatus]=useState('all')
   const [busy,setBusy]=useState(false),[exporting,setExporting]=useState(false),[error,setError]=useState('')
+  const [showSampleWords,setShowSampleWords]=useState(false),[sampleWords]=useState(makeSampleWords)
   const load=useCallback(async()=>{
     if(!currentUser)return
     const [w,l,d,dep,external,withdrawalTotals]=await Promise.all([
@@ -136,6 +143,11 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   return <section className="wallet-page">
     <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div>
     <div className="wallet-notice"><ShieldCheck size={19}/><span><b>USACryptoBit Wallet</b> — All cryptocurrency balances and transactions represent real digital assets and actual account activity. Each wallet ID is a unique identifier assigned to the corresponding wallet. Deposits, cryptocurrency conversions, and withdrawals are real transactions involving actual cryptocurrency and funds. External wallet addresses can be linked to facilitate cryptocurrency transfers, deposits, and withdrawals. The platform supports real blockchain transactions, allowing users to send, receive, store, and manage their digital assets securely.</span></div>
+    <section className="wallet-sample-words" aria-label="Virtual wallet sample words">
+      <div className="wallet-sample-words-heading"><div><span className="section-eyebrow">OPTIONAL ACCOUNT FEATURE</span><h3>12 sample words</h3></div><button type="button" className="admin-refresh" onClick={()=>setShowSampleWords(value=>!value)} aria-expanded={showSampleWords}>{showSampleWords?<EyeOff size={14}/>:<Eye size={14}/>} {showSampleWords?'Hide words':'Show words'}</button></div>
+      <p>These randomly generated words are for display only. They are not a wallet recovery phrase, cannot activate or recover an account, and are never saved or shared with administrators.</p>
+      {showSampleWords&&<ol className="wallet-sample-word-list">{sampleWords.map((word,index)=><li key={index}><span>{String(index+1).padStart(2,'0')}</span><b>{word}</b></li>)}</ol>}
+    </section>
     {accountControl?.status&&accountControl.status!=='active'&&<div className={`account-status-banner account-${accountControl.status}`}><ShieldCheck size={17}/><span>Account {accountControl.status}. Wallet operations require an active account.</span></div>}
     {accountControl?.withdrawals_paused&&<div className="account-status-banner account-restricted"><ShieldCheck size={17}/><span>Withdrawal requests are paused. {accountControl.withdrawal_pause_reason}</span></div>}
     {error&&<div className="admin-error">{error}</div>}
