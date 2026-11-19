@@ -1,35 +1,51 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Inbox, MessageSquare, RefreshCw, Send } from 'lucide-react'
 import { supabase } from './supabase'
 
 const dateTime = value => value ? new Date(value).toLocaleString() : ''
 
-export default function SupportMessagesPanel({ currentUser, isAdmin = false, customers = [], notify }) {
+export default function SupportMessagesPanel({ currentUser, isAdmin = false, customers = [], notify, initialConversationId, onUnreadChange }) {
   const [conversations,setConversations]=useState([]),[selected,setSelected]=useState(null),[messages,setMessages]=useState([])
   const [loading,setLoading]=useState(true),[messagesLoading,setMessagesLoading]=useState(false),[sending,setSending]=useState(false)
   const [subject,setSubject]=useState(''),[firstMessage,setFirstMessage]=useState(''),[reply,setReply]=useState(''),[recipientId,setRecipientId]=useState(''),[error,setError]=useState('')
+  const readMarkers=useRef({})
 
   const loadConversations=useCallback(async quiet=>{
     if(!quiet)setLoading(true)
-    const {data,error:loadError}=await supabase.from('support_conversations').select('id,customer_id,subject,status,created_at,updated_at').order('updated_at',{ascending:false}).limit(100)
+    const {data,error:loadError}=await supabase.from('support_conversations').select('id,customer_id,subject,status,customer_last_read_at,created_at,updated_at').order('updated_at',{ascending:false}).limit(100)
     if(loadError){setError('Could not load messages. Run the latest Supabase schema, then refresh.');setConversations([])}
-    else{setConversations(data??[]);setError('')}
+    else{if(!isAdmin)for(const conversation of data??[])if(readMarkers.current[conversation.id]===undefined)readMarkers.current[conversation.id]=conversation.customer_last_read_at;setConversations(data??[]);setError('')}
     setLoading(false)
-  },[])
+  },[isAdmin])
+
+  const markReadIfNeeded=useCallback(async(conversationId,rows)=>{
+    if(isAdmin)return
+    const incoming=(rows??[]).filter(message=>message.sender_id!==currentUser.id)
+    const marker=readMarkers.current[conversationId]
+    if(!incoming.some(message=>!marker||new Date(message.created_at)>new Date(marker)))return
+    const {data,error:readError}=await supabase.rpc('mark_customer_support_read',{p_conversation_id:conversationId})
+    if(readError)return
+    const readAt=data||new Date().toISOString()
+    readMarkers.current[conversationId]=readAt
+    setConversations(previous=>previous.map(conversation=>conversation.id===conversationId?{...conversation,customer_last_read_at:readAt}:conversation))
+    onUnreadChange?.()
+  },[isAdmin,currentUser.id,onUnreadChange])
 
   const loadMessages=useCallback(async(conversationId,quiet)=>{
     if(!quiet)setMessagesLoading(true)
     const {data,error:loadError}=await supabase.from('support_messages').select('id,conversation_id,sender_id,body,created_at').eq('conversation_id',conversationId).order('created_at',{ascending:true}).limit(250)
     if(loadError)setError('Could not load this conversation.')
-    else setMessages(data??[])
+    else{setMessages(data??[]);await markReadIfNeeded(conversationId,data??[])}
     setMessagesLoading(false)
-  },[])
+  },[markReadIfNeeded])
 
   useEffect(()=>{
     loadConversations(false)
     const timer=setInterval(()=>loadConversations(true),8000)
     return()=>clearInterval(timer)
   },[loadConversations])
+
+  useEffect(()=>{if(initialConversationId)setSelected(initialConversationId)},[initialConversationId])
 
   useEffect(()=>{
     if(!selected){setMessages([]);return}
@@ -44,7 +60,7 @@ export default function SupportMessagesPanel({ currentUser, isAdmin = false, cus
     if(!cleanSubject||!cleanBody||sending)return
     if(cleanSubject.length>120||cleanBody.length>5000){setError('Keep the subject under 120 characters and message under 5,000 characters.');return}
     setSending(true);setError('')
-    const {data:conversation,error:conversationError}=await supabase.from('support_conversations').insert({customer_id:currentUser.id,subject:cleanSubject}).select('id,customer_id,subject,status,created_at,updated_at').single()
+    const {data:conversation,error:conversationError}=await supabase.from('support_conversations').insert({customer_id:currentUser.id,subject:cleanSubject}).select('id,customer_id,subject,status,customer_last_read_at,created_at,updated_at').single()
     if(conversationError){setError(conversationError.message);setSending(false);return}
     const {error:messageError}=await supabase.from('support_messages').insert({conversation_id:conversation.id,sender_id:currentUser.id,body:cleanBody})
     if(messageError){setError(`The conversation was created, but the first message could not be sent: ${messageError.message}`);setSending(false);await loadConversations(true);return}
@@ -59,7 +75,7 @@ export default function SupportMessagesPanel({ currentUser, isAdmin = false, cus
     if(!recipientId||!cleanSubject||!cleanBody||sending)return
     if(cleanSubject.length>120||cleanBody.length>5000){setError('Keep the subject under 120 characters and message under 5,000 characters.');return}
     setSending(true);setError('')
-    const {data:conversation,error:conversationError}=await supabase.from('support_conversations').insert({customer_id:recipientId,subject:cleanSubject}).select('id,customer_id,subject,status,created_at,updated_at').single()
+    const {data:conversation,error:conversationError}=await supabase.from('support_conversations').insert({customer_id:recipientId,subject:cleanSubject}).select('id,customer_id,subject,status,customer_last_read_at,created_at,updated_at').single()
     if(conversationError){setError(conversationError.message);setSending(false);return}
     const {error:messageError}=await supabase.from('support_messages').insert({conversation_id:conversation.id,sender_id:currentUser.id,body:cleanBody})
     if(messageError){setError(`The conversation was created, but the first message could not be sent: ${messageError.message}`);setSending(false);await loadConversations(true);return}
@@ -90,7 +106,7 @@ export default function SupportMessagesPanel({ currentUser, isAdmin = false, cus
     {!selected&&<form className="support-compose" onSubmit={isAdmin?sendAdminFirstMessage:sendFirstMessage}>{isAdmin&&<label>Customer<select value={recipientId} onChange={event=>setRecipientId(event.target.value)} required><option value="">Choose a customer…</option>{customers.filter(customer=>customer.role!=='admin').map(customer=><option key={customer.id} value={customer.id}>{customer.email}</option>)}</select></label>}<label>Subject<input value={subject} onChange={event=>setSubject(event.target.value)} required maxLength={120} placeholder={isAdmin?'Message subject':'What can we help with?'}/></label><label>Message<textarea value={firstMessage} onChange={event=>setFirstMessage(event.target.value)} required maxLength={5000} rows={4} placeholder={isAdmin?'Write a message to the customer…':'Write a message to the support team…'}/></label><button className="submit-btn" disabled={sending}>{isAdmin?<MessageSquare size={15}/>:<Send size={15} />}{sending?'Sending…':isAdmin?'Send to customer':'Send message'}</button></form>}
     <div className="support-layout">
       <div className={`support-thread-list ${selected?'support-thread-list-hidden':''}`}>
-        {loading?<div className="support-empty"><span className="spinner"/>Loading inbox…</div>:conversations.length?conversations.map(conversation=><button key={conversation.id} type="button" className={`support-thread-link ${selected===conversation.id?'support-thread-selected':''}`} onClick={()=>{setError('');setSelected(conversation.id)}}><span className="support-thread-avatar"><MessageSquare size={14}/></span><span className="support-thread-copy"><b>{isAdmin?customerEmail(conversation.customer_id):conversation.subject}</b><span>{isAdmin?conversation.subject:conversation.status==='open'?'Support conversation':'Conversation'}</span><small>{dateTime(conversation.updated_at)}</small></span><i className={`support-status support-status-${conversation.status}`}>{conversation.status}</i></button>):<div className="support-empty"><Inbox size={22}/><b>No messages yet</b><span>{isAdmin?'Customer messages will appear here.':'Send a message to start a conversation.'}</span></div>}
+        {loading?<div className="support-empty"><span className="spinner"/>Loading inbox…</div>:conversations.length?conversations.map(conversation=><button key={conversation.id} type="button" className={`support-thread-link ${selected===conversation.id?'support-thread-selected':''}`} onClick={()=>{setError('');if(!isAdmin)readMarkers.current[conversation.id]=conversation.customer_last_read_at;setSelected(conversation.id)}}><span className="support-thread-avatar"><MessageSquare size={14}/></span><span className="support-thread-copy"><b>{isAdmin?customerEmail(conversation.customer_id):conversation.subject}</b><span>{isAdmin?conversation.subject:conversation.status==='open'?'Support conversation':'Conversation'}</span><small>{dateTime(conversation.updated_at)}</small></span><i className={`support-status support-status-${conversation.status}`}>{conversation.status}</i></button>):<div className="support-empty"><Inbox size={22}/><b>No messages yet</b><span>{isAdmin?'Customer messages will appear here.':'Send a message to start a conversation.'}</span></div>}
       </div>
       <div className={`support-thread ${selected?'support-thread-open':''}`}>
         {selectedConversation?<><div className="support-thread-heading"><button type="button" className="support-back" onClick={()=>setSelected(null)} aria-label="Back to inbox"><ArrowLeft size={16}/></button><div><b>{isAdmin?customerEmail(selectedConversation.customer_id):selectedConversation.subject}</b><span>{isAdmin?selectedConversation.subject:`Support · ${selectedConversation.status}`}</span></div><span className={`support-status support-status-${selectedConversation.status}`}>{selectedConversation.status}</span></div>

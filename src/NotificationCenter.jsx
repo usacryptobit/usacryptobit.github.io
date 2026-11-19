@@ -5,7 +5,7 @@ import { supabase } from './supabase'
 const amount = value => Number(value || 0).toLocaleString('en-US',{maximumFractionDigits:8})
 const timeLabel = value => value ? new Date(value).toLocaleString() : ''
 
-export default function NotificationCenter({ user, accountControl, onOpenWallet, onSignIn }) {
+export default function NotificationCenter({ user, accountControl, unreadMessages, onOpenWallet, onOpenMessages, onSignIn }) {
   const [open,setOpen]=useState(false),[loading,setLoading]=useState(false),[items,setItems]=useState([]),[error,setError]=useState('')
   const root=useRef(null)
 
@@ -39,13 +39,14 @@ export default function NotificationCenter({ user, accountControl, onOpenWallet,
   },[open,user,accountControl])
 
   const pendingCount=items.filter(item=>/pending|paused|restricted|suspended/i.test(item.title)).length
+  const totalNotificationCount=pendingCount+(user?Number(unreadMessages?.unread_count||0):0)
   return <div className="notification-wrap" ref={root}>
     <button className="icon-button notification" type="button" title="Notifications" aria-label="Notifications" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>
-      <Bell size={17}/>{pendingCount>0&&user&&<span className="notification-count">{pendingCount>9?'9+':pendingCount}</span>}
+      <Bell size={17}/>{totalNotificationCount>0&&user&&<span className="notification-count">{totalNotificationCount>9?'9+':totalNotificationCount}</span>}
     </button>
     {open&&<section className="notification-panel" aria-label="Notifications">
       <div className="notification-panel-heading"><div><span className="section-eyebrow">ACCOUNT UPDATES</span><h3>Notifications</h3></div><button type="button" className="notification-close" onClick={()=>setOpen(false)} aria-label="Close notifications"><X size={16}/></button></div>
-      {!user?<div className="notification-empty"><Bell size={20}/><b>Sign in to view updates</b><span>Account activity appears here.</span><button type="button" onClick={()=>{setOpen(false);onSignIn()}}>Sign in</button></div>:loading?<div className="notification-empty"><span className="spinner"/><span>Loading updates…</span></div>:error?<div className="notification-empty"><b>Could not load updates</b><span>{error}</span></div>:items.length?<div className="notification-list">{items.map(item=><button type="button" className="notification-item" key={item.id} onClick={()=>{setOpen(false);onOpenWallet()}}><span className="notification-item-icon">{/approved|processed/i.test(item.title)?<Check size={14}/>:<Clock3 size={14}/>}</span><span className="notification-item-copy"><b>{item.title}</b><span>{item.detail}</span><small>{timeLabel(item.created_at)}</small></span></button>)}</div>:<div className="notification-empty"><Check size={20}/><b>You’re all caught up</b><span>No account updates yet.</span></div>}
+      {!user?<div className="notification-empty"><Bell size={20}/><b>Sign in to view updates</b><span>Account activity appears here.</span><button type="button" onClick={()=>{setOpen(false);onSignIn()}}>Sign in</button></div>:loading?<div className="notification-empty"><span className="spinner"/><span>Loading updates…</span></div>:error?<div className="notification-empty"><b>Could not load updates</b><span>{error}</span></div>:items.length||Number(unreadMessages?.unread_count)>0?<div className="notification-list">{Number(unreadMessages?.unread_count)>0&&<button type="button" className="notification-item notification-message-item" onClick={()=>{setOpen(false);onOpenMessages?.(unreadMessages.latest_conversation_id)}}><span className="notification-item-icon"><Bell size={14}/></span><span className="notification-item-copy"><b>{Number(unreadMessages.unread_count)} new support {Number(unreadMessages.unread_count)===1?'message':'messages'}</b><span>{unreadMessages.latest_subject||'Open your customer inbox'}{unreadMessages.latest_message?` · ${unreadMessages.latest_message}`:''}</span><small>{timeLabel(unreadMessages.latest_created_at)}</small></span></button>}{items.map(item=><button type="button" className="notification-item" key={item.id} onClick={()=>{setOpen(false);onOpenWallet()}}><span className="notification-item-icon">{/approved|processed/i.test(item.title)?<Check size={14}/>:<Clock3 size={14}/>}</span><span className="notification-item-copy"><b>{item.title}</b><span>{item.detail}</span><small>{timeLabel(item.created_at)}</small></span></button>)}</div>:<div className="notification-empty"><Check size={20}/><b>You’re all caught up</b><span>No account updates yet.</span></div>}
     </section>}
   </div>
 }
