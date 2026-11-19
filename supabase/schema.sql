@@ -325,8 +325,12 @@ create table if not exists public.support_messages (
   conversation_id uuid not null references public.support_conversations(id) on delete cascade,
   sender_id uuid not null references auth.users(id) on delete cascade,
   body text not null check (char_length(body) between 1 and 5000),
+  attachment_path text,
+  attachment_name text,
   created_at timestamptz not null default now()
 );
+alter table public.support_messages add column if not exists attachment_path text;
+alter table public.support_messages add column if not exists attachment_name text;
 
 create index if not exists support_conversations_customer_updated_idx
   on public.support_conversations(customer_id, updated_at desc);
@@ -409,6 +413,29 @@ create trigger support_message_bumps_conversation
 grant select, insert, update on public.support_conversations to authenticated;
 grant select, insert on public.support_messages to authenticated;
 grant usage, select on sequence public.support_messages_id_seq to authenticated;
+
+-- Private image attachments for support conversations (up to 5 MB per image).
+insert into storage.buckets (id,name,public,file_size_limit,allowed_mime_types)
+values ('support-attachments','support-attachments',false,5242880,array['image/jpeg','image/png','image/webp','image/gif'])
+on conflict (id) do update set public=false,file_size_limit=excluded.file_size_limit,allowed_mime_types=excluded.allowed_mime_types;
+drop policy if exists "Support participants can view message pictures" on storage.objects;
+create policy "Support participants can view message pictures" on storage.objects
+  for select to authenticated using (
+    bucket_id='support-attachments' and exists (
+      select 1 from public.support_conversations c
+      where c.id::text=(storage.foldername(name))[1] and public.can_access_support_conversation(c.id)
+    )
+  );
+drop policy if exists "Participants can upload their support message pictures" on storage.objects;
+create policy "Participants can upload their support message pictures" on storage.objects
+  for insert to authenticated with check (
+    bucket_id='support-attachments'
+    and (storage.foldername(name))[2]=(select auth.uid())::text
+    and exists (
+      select 1 from public.support_conversations c
+      where c.id::text=(storage.foldername(name))[1] and public.can_access_support_conversation(c.id)
+    )
+  );
 
 create or replace function public.get_customer_unread_messages()
 returns table(unread_count bigint,latest_conversation_id uuid,latest_subject text,latest_message_id bigint,latest_message text,latest_created_at timestamptz)
