@@ -36,10 +36,42 @@ Deno.serve(async (request) => {
   const { data: roleRow, error: roleError } = await admin
     .from('user_roles').select('role').eq('user_id', actor.id).maybeSingle()
   if (roleError) return json({ error: 'Could not verify administrator access.' }, 500)
-  if (roleRow?.role !== 'admin') return json({ error: 'Administrator access is required.' }, 403)
+  const actorRole = roleRow?.role ?? 'customer'
+  const actorIsAdmin = actorRole === 'admin'
+  if (!actorIsAdmin && actorRole !== 'staff') return json({ error: 'Administrator or authorized staff access is required.' }, 403)
 
-  let body: { action?: string; user_id?: string; status?: string; reason?: string; duration?: string; asset?: string; amount?: number; withdrawal_id?: string; deposit_request_id?: string; decision?: string; paused?: boolean }
+  let body: { action?: string; user_id?: string; status?: string; reason?: string; duration?: string; asset?: string; amount?: number; withdrawal_id?: string; deposit_request_id?: string; decision?: string; paused?: boolean; enabled?: boolean; permissions?: string[]; customer_ids?: string[] }
   try { body = await request.json() } catch { return json({ error: 'Request body must be JSON.' }, 400) }
+
+  let staffPermissions: string[] = []
+  let assignedCustomerIds: string[] = []
+  if (!actorIsAdmin) {
+    const [{ data: permissions, error: permissionError }, { data: assignments, error: assignmentError }] = await Promise.all([
+      admin.from('staff_permissions').select('permission').eq('staff_user_id', actor.id),
+      admin.from('staff_customer_assignments').select('customer_user_id').eq('staff_user_id', actor.id),
+    ])
+    if (permissionError || assignmentError) return json({ error: 'Could not load staff permissions. Run the staff-access SQL setup first.' }, 500)
+    staffPermissions = (permissions ?? []).map((row) => row.permission)
+    assignedCustomerIds = (assignments ?? []).map((row) => row.customer_user_id)
+  }
+  const hasPermission = (permission: string) => actorIsAdmin || staffPermissions.includes(permission)
+  const canManageCustomer = (userId: string, permission: string) => hasPermission(permission) && (actorIsAdmin || assignedCustomerIds.includes(userId))
+
+  if (body.action === 'set_staff_access') {
+    if (!actorIsAdmin) return json({ error: 'Only the main administrator can grant or change staff access.' }, 403)
+    if (!body.user_id || typeof body.enabled !== 'boolean' || !Array.isArray(body.permissions) || !Array.isArray(body.customer_ids)) return json({ error: 'Select a staff account, permissions, and assigned customers.' }, 400)
+    const allowed = ['customer_access','support_messages','wallet_funding','wallet_requests']
+    if (body.permissions.some((item: unknown) => typeof item !== 'string' || !allowed.includes(item)) || body.customer_ids.some((item: unknown) => typeof item !== 'string')) return json({ error: 'One or more staff permissions or customer assignments are invalid.' }, 400)
+    const { error } = await admin.rpc('admin_set_staff_access', {
+      p_admin_id: actor.id,
+      p_staff_user_id: body.user_id,
+      p_permissions: [...new Set(body.permissions)],
+      p_customer_ids: [...new Set(body.customer_ids)],
+      p_enabled: body.enabled,
+    })
+    if (error) return json({ error: error.message }, 502)
+    return json({ ok: true })
+  }
 
   if (body.action === 'list') {
     const allUsers = []
@@ -49,17 +81,23 @@ Deno.serve(async (request) => {
       allUsers.push(...data.users)
       if (data.users.length < 1000) break
     }
-    const [{ data: controls, error: controlsError }, { data: roles, error: rolesError }, { data: actions, error: actionsError }, { data: wallets, error: walletsError }, { data: withdrawals, error: withdrawalsError }, { data: deposits, error: depositsError }] = await Promise.all([
+    const [{ data: controls, error: controlsError }, { data: roles, error: rolesError }, { data: actions, error: actionsError }, { data: wallets, error: walletsError }, { data: withdrawals, error: withdrawalsError }, { data: deposits, error: depositsError }, { data: permissionRows, error: permissionError }, { data: assignmentRows, error: assignmentError }] = await Promise.all([
       admin.from('account_controls').select('user_id,status,reason,suspended_until,updated_at,withdrawals_paused,withdrawal_pause_reason'),
       admin.from('user_roles').select('user_id,role'),
       admin.from('admin_action_log').select('id,admin_id,target_user_id,action,reason,created_at').order('created_at', { ascending: false }).limit(200),
       admin.from('demo_wallets').select('user_id,asset,available,held'),
       admin.from('demo_withdrawals').select('*').order('created_at', { ascending: false }).limit(100),
       admin.from('virtual_deposit_requests').select('*').order('created_at', { ascending: false }).limit(100),
+      admin.from('staff_permissions').select('staff_user_id,permission'),
+      admin.from('staff_customer_assignments').select('staff_user_id,customer_user_id'),
     ])
-    if (controlsError || rolesError || actionsError || walletsError || withdrawalsError || depositsError) return json({ error: 'Could not load customer controls and wallet requests. Run the updated SQL setup first.' }, 500)
+    if (controlsError || rolesError || actionsError || walletsError || withdrawalsError || depositsError || permissionError || assignmentError) return json({ error: 'Could not load customer controls and wallet requests. Run the updated SQL setup first.' }, 500)
     const controlMap = new Map((controls ?? []).map((row) => [row.user_id, row]))
     const roleMap = new Map((roles ?? []).map((row) => [row.user_id, row.role]))
+    const permissionsMap = new Map<string, string[]>()
+    for (const row of permissionRows ?? []) permissionsMap.set(row.staff_user_id, [...(permissionsMap.get(row.staff_user_id) ?? []), row.permission])
+    const assignmentsMap = new Map<string, string[]>()
+    for (const row of assignmentRows ?? []) assignmentsMap.set(row.staff_user_id, [...(assignmentsMap.get(row.staff_user_id) ?? []), row.customer_user_id])
     const safeUsers = allUsers.map((user) => {
       const control = controlMap.get(user.id)
       return {
@@ -69,6 +107,8 @@ Deno.serve(async (request) => {
         last_sign_in_at: user.last_sign_in_at,
         email_confirmed_at: user.email_confirmed_at,
         role: roleMap.get(user.id) ?? 'customer',
+        staff_permissions: permissionsMap.get(user.id) ?? [],
+        assigned_customer_ids: assignmentsMap.get(user.id) ?? [],
         status: control?.status === 'suspended' && control.suspended_until && new Date(control.suspended_until) <= new Date()
           ? 'active'
           : (control?.status ?? (user.banned_until ? 'suspended' : 'active')),
@@ -76,36 +116,43 @@ Deno.serve(async (request) => {
         suspended_until: control?.suspended_until ?? user.banned_until ?? null,
         withdrawals_paused: control?.withdrawals_paused ?? false,
         withdrawal_pause_reason: control?.withdrawal_pause_reason ?? null,
-        wallets: (wallets ?? []).filter((wallet) => wallet.user_id === user.id),
+        wallets: hasPermission('wallet_funding') || hasPermission('wallet_requests') ? (wallets ?? []).filter((wallet) => wallet.user_id === user.id) : [],
       }
     })
+    const visibleUsers = actorIsAdmin ? safeUsers : safeUsers.filter((user) => assignedCustomerIds.includes(user.id))
     const emailById = new Map(safeUsers.map((user) => [user.id, user.email]))
     return json({
-      users: safeUsers,
-      actions: (actions ?? []).map((item) => ({
+      users: visibleUsers,
+      staff: actorIsAdmin ? safeUsers.filter((user) => user.role === 'staff') : [],
+      staff_permissions: staffPermissions,
+      actions: (actions ?? []).filter((item) => actorIsAdmin).map((item) => ({
         ...item,
         admin_email: emailById.get(item.admin_id) ?? 'Administrator',
         target_email: emailById.get(item.target_user_id) ?? 'Customer',
       })),
-      withdrawals: (withdrawals ?? []).map((item) => ({ ...item, user_email: emailById.get(item.user_id) ?? 'Customer' })),
-      deposits: (deposits ?? []).map((item) => ({ ...item, user_email: emailById.get(item.user_id) ?? 'Customer' })),
+      withdrawals: (hasPermission('wallet_requests') ? (withdrawals ?? []).filter((item) => actorIsAdmin || assignedCustomerIds.includes(item.user_id)) : []).map((item) => ({ ...item, user_email: emailById.get(item.user_id) ?? 'Customer' })),
+      deposits: (hasPermission('wallet_requests') ? (deposits ?? []).filter((item) => actorIsAdmin || assignedCustomerIds.includes(item.user_id)) : []).map((item) => ({ ...item, user_email: emailById.get(item.user_id) ?? 'Customer' })),
     })
   }
 
   if (body.action === 'fund_virtual_wallet') {
+    if (!hasPermission('wallet_funding')) return json({ error: 'You do not have permission to fund virtual wallets.' }, 403)
     const userId = body.user_id
     const asset = body.asset?.toUpperCase()
     const amount = Number(body.amount)
     const reason = body.reason?.trim() ?? ''
     if (!userId || !['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'].includes(asset ?? '') || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000 || reason.length < 3 || reason.length > 500) return json({ error: 'Enter a valid customer, asset, amount, and reason.' }, 400)
     const { data: role } = await admin.from('user_roles').select('role').eq('user_id', userId).maybeSingle()
-    if (userId === actor.id || role?.role === 'admin') return json({ error: 'Virtual balances cannot be changed for administrator accounts.' }, 403)
+    if (userId === actor.id) return json({ error: 'You cannot fund your own account.' }, 403)
+    if (!canManageCustomer(userId, 'wallet_funding')) return json({ error: 'This customer is not assigned to your staff account.' }, 403)
+    if (role?.role === 'admin' || role?.role === 'staff') return json({ error: 'Virtual balances cannot be changed for administrator or staff accounts.' }, 403)
     const { error } = await admin.rpc('admin_fund_demo_wallet', { p_admin_id: actor.id, p_user_id: userId, p_asset: asset, p_amount: amount, p_reason: reason })
     if (error) return json({ error: error.message }, 502)
     return json({ ok: true })
   }
 
   if (body.action === 'reset_virtual_wallet') {
+    if (!actorIsAdmin) return json({ error: 'Wallet resets are restricted to the main administrator.' }, 403)
     const userId = body.user_id
     const reason = body.reason?.trim() ?? ''
     if (!userId || reason.length < 3 || reason.length > 500) return json({ error: 'Choose a customer and enter a reason between 3 and 500 characters.' }, 400)
@@ -118,12 +165,14 @@ Deno.serve(async (request) => {
   }
 
   if (body.action === 'review_virtual_withdrawal') {
+    if (!hasPermission('wallet_requests')) return json({ error: 'You do not have permission to review virtual withdrawal requests.' }, 403)
     const decisionMap: Record<string, string> = { hold: 'hold', release: 'release', approve: 'approve', reject: 'reject' }
     const decision = decisionMap[body.decision ?? '']
     const reason = body.reason?.trim() ?? ''
     if (!body.withdrawal_id || !decision || reason.length < 3 || reason.length > 500) return json({ error: 'Choose a valid request action and enter a reason.' }, 400)
     const { data: requestRow, error: requestError } = await admin.from('demo_withdrawals').select('user_id').eq('id', body.withdrawal_id).maybeSingle()
     if (requestError || !requestRow) return json({ error: 'Virtual withdrawal request not found.' }, 404)
+    if (!canManageCustomer(requestRow.user_id, 'wallet_requests')) return json({ error: 'This customer is not assigned to your staff account.' }, 403)
     const { data: role } = await admin.from('user_roles').select('role').eq('user_id', requestRow.user_id).maybeSingle()
     if (requestRow.user_id === actor.id || role?.role === 'admin') return json({ error: 'Administrator withdrawal requests cannot be reviewed here.' }, 403)
     const { error } = await admin.rpc('admin_review_demo_withdrawal', { p_admin_id: actor.id, p_withdrawal_id: body.withdrawal_id, p_action: decision, p_reason: reason })
@@ -132,11 +181,13 @@ Deno.serve(async (request) => {
   }
 
   if (body.action === 'review_virtual_deposit') {
+    if (!hasPermission('wallet_requests')) return json({ error: 'You do not have permission to review virtual deposit requests.' }, 403)
     const decision = body.decision
     const reason = body.reason?.trim() ?? ''
     if (!body.deposit_request_id || !['approve','reject'].includes(decision ?? '') || reason.length < 3 || reason.length > 500) return json({ error: 'Choose a valid deposit action and enter a reason.' }, 400)
     const { data: requestRow, error: requestError } = await admin.from('virtual_deposit_requests').select('user_id').eq('id', body.deposit_request_id).maybeSingle()
     if (requestError || !requestRow) return json({ error: 'Deposit request not found.' }, 404)
+    if (!canManageCustomer(requestRow.user_id, 'wallet_requests')) return json({ error: 'This customer is not assigned to your staff account.' }, 403)
     const { data: role } = await admin.from('user_roles').select('role').eq('user_id', requestRow.user_id).maybeSingle()
     if (requestRow.user_id === actor.id || role?.role === 'admin') return json({ error: 'Administrator deposit requests cannot be reviewed here.' }, 403)
     const { error } = await admin.rpc('admin_review_virtual_deposit', { p_admin_id: actor.id, p_request_id: body.deposit_request_id, p_action: decision, p_reason: reason })
@@ -145,12 +196,14 @@ Deno.serve(async (request) => {
   }
 
   if (body.action === 'set_virtual_withdrawals_paused') {
+    if (!hasPermission('wallet_requests')) return json({ error: 'You do not have permission to change withdrawal access.' }, 403)
     const userId = body.user_id
     const reason = body.reason?.trim() ?? ''
     if (!userId || typeof body.paused !== 'boolean' || reason.length < 3 || reason.length > 500) return json({ error: 'Choose an account and enter a reason.' }, 400)
     const { data: role, error: roleCheckError } = await admin.from('user_roles').select('role').eq('user_id', userId).maybeSingle()
     if (roleCheckError) return json({ error: 'Could not verify customer role.' }, 500)
-    if (userId === actor.id || role?.role === 'admin') return json({ error: 'Administrator accounts cannot be changed here.' }, 403)
+    if (!canManageCustomer(userId, 'wallet_requests')) return json({ error: 'This customer is not assigned to your staff account.' }, 403)
+    if (userId === actor.id || role?.role === 'admin' || role?.role === 'staff') return json({ error: 'Administrator and staff accounts cannot be changed here.' }, 403)
     const { data: oldControl, error: readError } = await admin.from('account_controls').select('*').eq('user_id', userId).maybeSingle()
     if (readError) return json({ error: 'Could not load the current account controls.' }, 500)
     const update = { ...(oldControl ?? {}), user_id: userId, withdrawals_paused: body.paused, withdrawal_pause_reason: body.paused ? reason : null, updated_by: actor.id, updated_at: new Date().toISOString() }
@@ -162,6 +215,7 @@ Deno.serve(async (request) => {
   }
 
   if (body.action !== 'set_status') return json({ error: 'Unsupported action.' }, 400)
+  if (!hasPermission('customer_access')) return json({ error: 'You do not have permission to change customer account access.' }, 403)
   const targetId = body.user_id
   const nextStatus = body.status
   const reason = body.reason?.trim() ?? ''
@@ -173,7 +227,8 @@ Deno.serve(async (request) => {
   const { data: targetRole, error: targetRoleError } = await admin
     .from('user_roles').select('role').eq('user_id', targetId).maybeSingle()
   if (targetRoleError) return json({ error: 'Could not verify the customer role.' }, 500)
-  if (targetRole?.role === 'admin') return json({ error: 'Administrators cannot change another administrator’s account from this screen.' }, 403)
+  if (!canManageCustomer(targetId, 'customer_access')) return json({ error: 'This customer is not assigned to your staff account.' }, 403)
+  if (targetRole?.role === 'admin' || targetRole?.role === 'staff') return json({ error: 'Administrators and staff cannot be managed as customers here.' }, 403)
 
   const selectedDuration = nextStatus === 'suspended' ? durations[body.duration!] : null
   const { data: oldControl } = await admin.from('account_controls').select('*').eq('user_id', targetId).maybeSingle()

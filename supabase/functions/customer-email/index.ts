@@ -56,7 +56,14 @@ Deno.serve(async request => {
   } else {
     const { data: role, error: roleError } = await admin.from('user_roles').select('role').eq('user_id', actor.id).maybeSingle()
     if (roleError) return json({ error: 'Could not verify administrator access.' }, 500)
-    if (role?.role !== 'admin') return json({ error: 'Administrator access is required.' }, 403)
+    if (role?.role === 'staff') {
+      const [{ data: permission, error: permissionError }, { data: assignment, error: assignmentError }] = await Promise.all([
+        admin.from('staff_permissions').select('permission').eq('staff_user_id', actor.id).eq('permission', 'wallet_requests').maybeSingle(),
+        admin.from('staff_customer_assignments').select('customer_user_id').eq('staff_user_id', actor.id).eq('customer_user_id', row.user_id).maybeSingle(),
+      ])
+      if (permissionError || assignmentError) return json({ error: 'Could not verify staff request access.' }, 500)
+      if (!permission || !assignment) return json({ error: 'Staff access to this customer request is required.' }, 403)
+    } else if (role?.role !== 'admin') return json({ error: 'Administrator access is required.' }, 403)
   }
 
   const { data: customerResult, error: customerError } = await admin.auth.admin.getUserById(row.user_id)
