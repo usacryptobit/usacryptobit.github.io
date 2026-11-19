@@ -325,12 +325,14 @@ create table if not exists public.support_messages (
   conversation_id uuid not null references public.support_conversations(id) on delete cascade,
   sender_id uuid not null references auth.users(id) on delete cascade,
   body text not null check (char_length(body) between 1 and 5000),
+  body_html text,
   attachment_path text,
   attachment_name text,
   created_at timestamptz not null default now()
 );
 alter table public.support_messages add column if not exists attachment_path text;
 alter table public.support_messages add column if not exists attachment_name text;
+alter table public.support_messages add column if not exists body_html text;
 
 create index if not exists support_conversations_customer_updated_idx
   on public.support_conversations(customer_id, updated_at desc);

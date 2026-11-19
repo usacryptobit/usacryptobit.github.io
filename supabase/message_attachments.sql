@@ -25,3 +25,4 @@ create policy "Participants can upload their support message pictures" on storag
       where c.id::text=(storage.foldername(name))[1] and public.can_access_support_conversation(c.id)
     )
   );
+alter table public.support_messages add column if not exists body_html text;
