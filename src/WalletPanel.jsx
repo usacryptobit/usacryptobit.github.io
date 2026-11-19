@@ -6,11 +6,11 @@ const ASSETS = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','
 const amount = value => Number(value || 0).toLocaleString('en-US',{maximumFractionDigits:8})
 const usd = value => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(value||0))
 const statusClass = status => ['approved','recorded'].includes(status) ? 'active' : status === 'rejected' ? 'suspended' : 'restricted'
-const activityLabel = value => (value||'').replace(/demo/gi,'').replaceAll('_',' ').replace(/\s+/g,' ').trim()
+const activityLabel = value => String(value||'').replace(/\b(demo|virtual|simulated?|simulation)\b/gi,'').replaceAll('_',' ').replace(/[;,:·]+/g,' ').replace(/\s+/g,' ').trim()
 const makeActivityRows = (ledger, withdrawals, deposits) => [
-  ...ledger.map(row=>({...row,feed_id:`ledger-${row.id}`,feed_type:'balance',feed_status:'recorded',feed_title:activityLabel(row.entry_type),feed_detail:`${row.available_delta>0?'+':''}${row.available_delta} available${row.held_delta?` · ${row.held_delta>0?'+':''}${row.held_delta} held`:''}`,feed_note:row.note||''})),
-  ...withdrawals.map(row=>({...row,feed_id:`withdrawal-${row.id}`,feed_type:'withdrawal',feed_status:row.status,feed_title:'Withdrawal request',feed_detail:`${row.amount} ${row.asset} · ${row.destination_network||'Network not specified'}`,feed_note:row.reason||row.destination||''})),
-  ...deposits.map(row=>({...row,feed_id:`deposit-${row.id}`,feed_type:'deposit',feed_status:row.status,feed_title:'Deposit request',feed_detail:`${row.amount} ${row.asset}`,feed_note:row.reason||row.reference_note||''})),
+  ...ledger.map(row=>({...row,feed_id:`ledger-${row.id}`,feed_type:'balance',feed_status:'recorded',feed_title:activityLabel(row.entry_type),feed_detail:`${row.available_delta>0?'+':''}${row.available_delta} available${row.held_delta?` · ${row.held_delta>0?'+':''}${row.held_delta} held`:''}`,feed_note:activityLabel(row.note)})),
+  ...withdrawals.map(row=>({...row,feed_id:`withdrawal-${row.id}`,feed_type:'withdrawal',feed_status:row.status,feed_title:'Withdrawal request',feed_detail:`${row.amount} ${row.asset} · ${row.destination_network||'Network not specified'}`,feed_note:activityLabel(row.reason||row.destination)})),
+  ...deposits.map(row=>({...row,feed_id:`deposit-${row.id}`,feed_type:'deposit',feed_status:row.status,feed_title:'Deposit request',feed_detail:`${row.amount} ${row.asset}`,feed_note:activityLabel(row.reason||row.reference_note)})),
 ].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
 const filterActivityRows = (rows, asset, type, status) => rows.filter(row=>(asset==='all'||row.asset===asset)&&(type==='all'||row.feed_type===type)&&(status==='all'||row.feed_status===status))
 const fetchAllRows = async table => {
