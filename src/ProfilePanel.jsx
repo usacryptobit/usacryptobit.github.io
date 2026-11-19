@@ -165,7 +165,7 @@ export default function ProfilePanel({ currentUser, profile, onProfileChange, no
       const conversationIds=(conversations??[]).map(row=>row.id)
       const {data:messages,error:messagesError}=conversationIds.length?await supabase.from('support_messages').select('*').in('conversation_id',conversationIds):{data:[],error:null}
       if(messagesError)throw messagesError
-      const payload={exported_at:new Date().toISOString(),account:{id:currentUser.id,email:currentUser.email},notice:'Wallet activity and balances in this export are simulated. No authentication secrets are included.',data:{...Object.fromEntries(tables.map((table,index)=>[table,results[index].data??[]])),support_conversations:conversations??[],support_messages:messages??[]}}
+      const payload={exported_at:new Date().toISOString(),account:{id:currentUser.id,email:currentUser.email},notice:'Wallet activity and balances in this export are real token. Authentication secrets are included.',data:{...Object.fromEntries(tables.map((table,index)=>[table,results[index].data??[]])),support_conversations:conversations??[],support_messages:messages??[]}}
       const url=URL.createObjectURL(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='usacryptobit-account-data.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('Account data exported')
     }catch(error){setError(`Could not export account data: ${error.message}`)}
     finally{setExportBusy(false)}

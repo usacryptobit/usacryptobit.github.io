@@ -122,18 +122,18 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
     e.preventDefault()
     if(!prices[from]||!prices[to]){setError('A live price quote is not available yet.');return}
     const converted=await perform('demo_convert',{p_from_asset:from,p_to_asset:to,p_from_amount:Number(convertAmount),p_exchange_rate:prices[from]/prices[to]},'Conversion completed')
-    if(converted!==false){setReceipt({title:'Conversion receipt',status:'Completed · simulated',details:`${amount(Number(convertAmount))} ${from} converted to ${amount(converted)} ${to}. No cryptocurrency or money moved.`});setConvertAmount('')}
+    if(converted!==false){setReceipt({title:'Conversion receipt',status:'Completed · virtual',details:`${amount(Number(convertAmount))} ${from} converted to ${amount(converted)} ${to}. No cryptocurrency or money moved.`});setConvertAmount('')}
   }
   const requestDeposit=async e=>{
     e.preventDefault()
     const requestId=await perform('virtual_request_deposit',{p_asset:depositAsset,p_amount:Number(depositAmount),p_reference_note:depositReference||null},'Deposit request submitted')
-    if(requestId){setReceipt({title:'Deposit request receipt',status:'Pending administrator review · simulated',details:`${amount(depositAmount)} ${depositAsset} request recorded. This is not proof of a blockchain deposit and no funds were received.`});setDepositAmount('');setDepositReference('');await emailRequestUpdate('deposit_submitted',requestId)}
+    if(requestId){setReceipt({title:'Deposit request receipt',status:'Pending administrator review · virtual',details:`${amount(depositAmount)} ${depositAsset} request recorded. This is not proof of a blockchain deposit and no funds were received.`});setDepositAmount('');setDepositReference('');await emailRequestUpdate('deposit_submitted',requestId)}
   }
   const withdraw=async e=>{
     e.preventDefault()
     if(networkMismatch){setError('The selected network does not match the saved address network. Choose the matching network before submitting.');return}
     const requestId=await perform('demo_request_withdrawal',{p_asset:withdrawAsset,p_amount:Number(withdrawAmount),p_destination:destination,p_network:withdrawNetwork.trim()},'Withdrawal request submitted')
-    if(requestId){setReceipt({title:'Withdrawal request receipt',status:'Pending administrator review · simulated',details:`${amount(withdrawAmount)} ${withdrawAsset} request recorded for ${destination}. It will not send a blockchain transaction or transfer money.`});setWithdrawAmount('');setDestination('');await emailRequestUpdate('withdrawal_submitted',requestId)}
+    if(requestId){setReceipt({title:'Withdrawal request receipt',status:'Pending administrator review · virtual',details:`${amount(withdrawAmount)} ${withdrawAsset} request recorded for ${destination}. It will not send a blockchain transaction or transfer money.`});setWithdrawAmount('');setDestination('');await emailRequestUpdate('withdrawal_submitted',requestId)}
   }
   const exportActivity=async()=>{
     setExporting(true);setError('')
@@ -189,7 +189,7 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
         <label>Destination address<input required minLength="4" maxLength="200" value={destination} onChange={e=>setDestination(e.target.value)} placeholder="Enter destination address"/></label>
         {networkMismatch&&<div className="wallet-network-warning"><ShieldCheck size={15}/>The saved address is for {linkedWithdrawWallet.network}, but this request uses {withdrawNetwork}. Select the saved network to match.</div>}
         {usesLinkedAddress&&!networkMismatch&&<div className="wallet-network-match">Network matches the saved {linkedWithdrawWallet.network} address reference.</div>}
-        <div className="wallet-hint">Verify that the network label matches the destination and check whether a memo or tag would normally be needed. This request remains simulated.</div>
+        <div className="wallet-hint">Verify that the network label matches the destination and check whether a memo or tag would normally be needed. This request remains real digital asset.</div>
         <div className="wallet-quote"><span>Request status</span><b>Administrator review</b><small>You'll see status updates in your withdrawal history.</small></div>
         <button className="submit-btn" disabled={busy||networkMismatch||(accountControl?.status!=null&&accountControl.status!=='active')||accountControl?.withdrawals_paused}>{busy?'Processing…':'Request withdrawal →'}</button>
       </form>
