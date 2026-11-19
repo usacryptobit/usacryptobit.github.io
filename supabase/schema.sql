@@ -90,12 +90,17 @@ create table if not exists public.demo_withdrawals (
   user_id uuid not null references auth.users(id) on delete cascade,
   asset text not null check (asset in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD')),
   amount numeric(38,12) not null check (amount > 0),
+  destination_network text not null default 'Not specified',
   destination text not null check (char_length(destination) between 4 and 200),
   status text not null default 'pending' check (status in ('pending','held','approved','rejected')),
   reason text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.demo_withdrawals add column if not exists destination_network text;
+update public.demo_withdrawals set destination_network='Not specified' where destination_network is null;
+alter table public.demo_withdrawals alter column destination_network set default 'Not specified';
+alter table public.demo_withdrawals alter column destination_network set not null;
 
 create table if not exists public.virtual_deposit_requests (
   id uuid primary key default gen_random_uuid(),
@@ -451,8 +456,9 @@ revoke all on function public.demo_convert(text,text,numeric,numeric) from publi
 revoke all on function public.demo_convert(text,text,numeric,numeric) from anon;
 grant execute on function public.demo_convert(text,text,numeric,numeric) to authenticated;
 
--- A withdrawal request only moves fictional demo units into a held state.
-create or replace function public.demo_request_withdrawal(p_asset text, p_amount numeric, p_destination text)
+-- A withdrawal request only moves simulated units into a held state.
+drop function if exists public.demo_request_withdrawal(text,numeric,text);
+create or replace function public.demo_request_withdrawal(p_asset text, p_amount numeric, p_destination text, p_network text)
 returns uuid
 language plpgsql
 security definer
@@ -469,22 +475,22 @@ begin
   if v_paused then raise exception 'Virtual withdrawals are paused for this account.'; end if;
   if p_asset not in ('BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD') then raise exception 'Unsupported virtual asset.'; end if;
   if p_amount is null or p_amount <= 0 then raise exception 'Enter a positive amount.'; end if;
+  if p_network is null or char_length(trim(p_network)) not between 2 and 40 then raise exception 'Enter a network between 2 and 40 characters.'; end if;
   if p_destination is null or char_length(trim(p_destination)) not between 4 and 200 then raise exception 'Enter a destination label between 4 and 200 characters.'; end if;
 
   update public.demo_wallets
     set available = available - p_amount, held = held + p_amount, updated_at = now()
     where user_id = v_user and asset = p_asset and available >= p_amount;
   if not found then raise exception 'Insufficient available virtual balance.'; end if;
-  insert into public.demo_withdrawals (id,user_id,asset,amount,destination,status)
-    values (v_id,v_user,p_asset,p_amount,trim(p_destination),'pending');
+  insert into public.demo_withdrawals (id,user_id,asset,amount,destination_network,destination,status)
+    values (v_id,v_user,p_asset,p_amount,trim(p_network),trim(p_destination),'pending');
   insert into public.demo_wallet_ledger (user_id,asset,available_delta,held_delta,entry_type,reference_id,note,created_by)
     values (v_user,p_asset,-p_amount,p_amount,'withdrawal_requested',v_id,'Virtual withdrawal request; no blockchain transfer',v_user);
   return v_id;
 end;
 $$;
-revoke all on function public.demo_request_withdrawal(text,numeric,text) from public;
-revoke all on function public.demo_request_withdrawal(text,numeric,text) from anon;
-grant execute on function public.demo_request_withdrawal(text,numeric,text) to authenticated;
+revoke all on function public.demo_request_withdrawal(text,numeric,text,text) from public,anon;
+grant execute on function public.demo_request_withdrawal(text,numeric,text,text) to authenticated;
 
 -- Customer deposit actions create a review request only; they never accept or verify a blockchain transfer.
 create or replace function public.virtual_request_deposit(p_asset text,p_amount numeric,p_reference_note text default null)
@@ -527,7 +533,7 @@ begin
   insert into public.demo_wallet_ledger (user_id,asset,available_delta,entry_type,note,created_by)
     values (p_user_id,p_asset,p_amount,'admin_funding',trim(p_reason),p_admin_id);
   insert into public.admin_action_log (admin_id,target_user_id,action,reason)
-    values (p_admin_id,p_user_id,'virtual_funding',trim(p_reason));
+    values (p_admin_id,p_user_id,'virtual_funding',left('Added '||p_amount::text||' '||p_asset||' virtual units. '||trim(p_reason),500));
 end;
 $$;
 revoke all on function public.admin_fund_demo_wallet(uuid,uuid,text,numeric,text) from public,anon,authenticated;
@@ -574,7 +580,7 @@ begin
     v_log_action := 'withdrawal_rejected';
   end if;
   insert into public.admin_action_log (admin_id,target_user_id,action,reason)
-    values (p_admin_id,v_withdrawal.user_id,v_log_action,trim(p_reason));
+    values (p_admin_id,v_withdrawal.user_id,v_log_action,left(v_withdrawal.amount::text||' '||v_withdrawal.asset||' on '||v_withdrawal.destination_network||'. '||trim(p_reason),500));
 end;
 $$;
 revoke all on function public.admin_review_demo_withdrawal(uuid,uuid,text,text) from public,anon,authenticated;
@@ -609,7 +615,7 @@ begin
     v_action := 'virtual_deposit_rejected';
   end if;
   insert into public.admin_action_log(admin_id,target_user_id,action,reason)
-    values(p_admin_id,v_request.user_id,v_action,trim(p_reason));
+    values(p_admin_id,v_request.user_id,v_action,left(v_request.amount::text||' '||v_request.asset||'. '||trim(p_reason),500));
 end;
 $$;
 revoke all on function public.admin_review_virtual_deposit(uuid,uuid,text,text) from public,anon,authenticated;

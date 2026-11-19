@@ -1,27 +1,44 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ArrowDownUp, Clock3, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
+import { ArrowDownUp, Clock3, Download, RefreshCw, ShieldCheck, Wallet } from 'lucide-react'
 import { supabase } from './supabase'
 
 const ASSETS = ['BTC','ETH','SOL','BNB','XRP','DOGE','ADA','AVAX','LINK','DOT','TRX','LTC','USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD']
 const amount = value => Number(value || 0).toLocaleString('en-US',{maximumFractionDigits:8})
 const usd = value => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(value||0))
-const statusClass = status => status === 'approved' ? 'active' : status === 'rejected' ? 'suspended' : 'restricted'
+const statusClass = status => ['approved','recorded'].includes(status) ? 'active' : status === 'rejected' ? 'suspended' : 'restricted'
 const activityLabel = value => (value||'').replace(/demo/gi,'').replaceAll('_',' ').replace(/\s+/g,' ').trim()
+const makeActivityRows = (ledger, withdrawals, deposits) => [
+  ...ledger.map(row=>({...row,feed_id:`ledger-${row.id}`,feed_type:'balance',feed_status:'recorded',feed_title:activityLabel(row.entry_type),feed_detail:`${row.available_delta>0?'+':''}${row.available_delta} available${row.held_delta?` · ${row.held_delta>0?'+':''}${row.held_delta} held`:''}`,feed_note:row.note||''})),
+  ...withdrawals.map(row=>({...row,feed_id:`withdrawal-${row.id}`,feed_type:'withdrawal',feed_status:row.status,feed_title:'Withdrawal request',feed_detail:`${row.amount} ${row.asset} · ${row.destination_network||'Network not specified'}`,feed_note:row.reason||row.destination||''})),
+  ...deposits.map(row=>({...row,feed_id:`deposit-${row.id}`,feed_type:'deposit',feed_status:row.status,feed_title:'Deposit request',feed_detail:`${row.amount} ${row.asset}`,feed_note:row.reason||row.reference_note||''})),
+].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
+const filterActivityRows = (rows, asset, type, status) => rows.filter(row=>(asset==='all'||row.asset===asset)&&(type==='all'||row.feed_type===type)&&(status==='all'||row.feed_status===status))
+const fetchAllRows = async table => {
+  const rows=[]
+  for(let offset=0;;offset+=1000){
+    const {data,error}=await supabase.from(table).select('*').order('created_at',{ascending:false}).range(offset,offset+999)
+    if(error)throw error
+    rows.push(...(data??[]))
+    if((data??[]).length<1000)return rows
+  }
+}
+const csvCell = value => {let text=String(value??'');if(/^[=+\-@\t\r]/.test(text))text=`'${text}`;return `"${text.replaceAll('"','""')}"`}
 
 export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   const [wallets,setWallets]=useState([]),[ledger,setLedger]=useState([]),[withdrawals,setWithdrawals]=useState([]),[withdrawalStats,setWithdrawalStats]=useState([]),[deposits,setDeposits]=useState([]),[externalWallets,setExternalWallets]=useState([])
   const [walletQuery,setWalletQuery]=useState(''),[walletFilter,setWalletFilter]=useState('all'),[walletSort,setWalletSort]=useState('asset')
   const [from,setFrom]=useState('BTC'),[to,setTo]=useState('ETH'),[convertAmount,setConvertAmount]=useState('')
   const [depositAsset,setDepositAsset]=useState('BTC'),[depositAmount,setDepositAmount]=useState(''),[depositReference,setDepositReference]=useState('')
-  const [withdrawAsset,setWithdrawAsset]=useState('BTC'),[withdrawAmount,setWithdrawAmount]=useState(''),[destination,setDestination]=useState('')
-  const [busy,setBusy]=useState(false),[error,setError]=useState('')
+  const [withdrawAsset,setWithdrawAsset]=useState('BTC'),[withdrawAmount,setWithdrawAmount]=useState(''),[destination,setDestination]=useState(''),[withdrawNetwork,setWithdrawNetwork]=useState('')
+  const [activityAsset,setActivityAsset]=useState('all'),[activityType,setActivityType]=useState('all'),[activityStatus,setActivityStatus]=useState('all')
+  const [busy,setBusy]=useState(false),[exporting,setExporting]=useState(false),[error,setError]=useState('')
   const load=useCallback(async()=>{
     if(!currentUser)return
     const [w,l,d,dep,external,withdrawalTotals]=await Promise.all([
       supabase.from('demo_wallets').select('*').order('asset'),
-      supabase.from('demo_wallet_ledger').select('*').order('created_at',{ascending:false}).limit(12),
-      supabase.from('demo_withdrawals').select('*').order('created_at',{ascending:false}).limit(8),
-      supabase.from('virtual_deposit_requests').select('*').order('created_at',{ascending:false}).limit(8),
+      supabase.from('demo_wallet_ledger').select('*').order('created_at',{ascending:false}).limit(1000),
+      supabase.from('demo_withdrawals').select('*').order('created_at',{ascending:false}).limit(1000),
+      supabase.from('virtual_deposit_requests').select('*').order('created_at',{ascending:false}).limit(1000),
       supabase.from('customer_external_wallets').select('asset,network,address,updated_at').order('asset'),
       supabase.from('demo_withdrawals').select('asset,amount').order('created_at',{ascending:false}).limit(1000),
     ])
@@ -31,7 +48,9 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   useEffect(()=>{load()},[load])
   const prices=useMemo(()=>Object.fromEntries([...['USDT','USDC','DAI','USDS','USDE','PYUSD','FDUSD','RLUSD','USDG','USDP','GUSD','USD1','USDD'].map(symbol=>[symbol,1]),...coins.map(c=>[c.symbol.toUpperCase(),c.current_price])]),[coins])
   const quote=Number(convertAmount)>0&&prices[from]&&prices[to]?Number(convertAmount)*prices[from]/prices[to]*.995:0
-  const totalUsd=wallets.reduce((sum,w)=>sum+Number(w.available||0)*Number(prices[w.asset]||0),0)
+  const totalUsd=wallets.reduce((sum,w)=>sum+(Number(w.available||0)+Number(w.held||0))*Number(prices[w.asset]||0),0)
+  const activityRows=useMemo(()=>makeActivityRows(ledger,withdrawals,deposits),[ledger,withdrawals,deposits])
+  const visibleActivity=useMemo(()=>filterActivityRows(activityRows,activityAsset,activityType,activityStatus),[activityRows,activityAsset,activityType,activityStatus])
   const visibleWallets=useMemo(()=>{
     const rows=wallets.filter(w=>{
       const matchesQuery=w.asset.toLowerCase().includes(walletQuery.trim().toLowerCase())
@@ -51,6 +70,9 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
     })
   },[wallets,walletQuery,walletFilter,walletSort,externalWallets,withdrawalStats,prices])
   const depositWallet=wallets.find(w=>w.asset===depositAsset)
+  const linkedWithdrawWallet=externalWallets.find(row=>row.asset===withdrawAsset)
+  const usesLinkedAddress=Boolean(linkedWithdrawWallet&&destination.trim()===linkedWithdrawWallet.address.trim())
+  const networkMismatch=Boolean(usesLinkedAddress&&withdrawNetwork.trim().toLowerCase()!==linkedWithdrawWallet.network.trim().toLowerCase())
   const perform=async(fn,args,success)=>{
     setBusy(true);setError('')
     const {data,error:rpcError}=await supabase.rpc(fn,args)
@@ -94,18 +116,32 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
   }
   const withdraw=async e=>{
     e.preventDefault()
-    const requestId=await perform('demo_request_withdrawal',{p_asset:withdrawAsset,p_amount:Number(withdrawAmount),p_destination:destination},'Withdrawal request submitted')
+    if(networkMismatch){setError('The selected network does not match the saved address network. Choose the matching network before submitting.');return}
+    const requestId=await perform('demo_request_withdrawal',{p_asset:withdrawAsset,p_amount:Number(withdrawAmount),p_destination:destination,p_network:withdrawNetwork.trim()},'Withdrawal request submitted')
     if(requestId){setWithdrawAmount('');setDestination('');await emailRequestUpdate('withdrawal_submitted',requestId)}
+  }
+  const exportActivity=async()=>{
+    setExporting(true);setError('')
+    try{
+      const [allLedger,allWithdrawals,allDeposits]=await Promise.all([fetchAllRows('demo_wallet_ledger'),fetchAllRows('demo_withdrawals'),fetchAllRows('virtual_deposit_requests')])
+      const rows=filterActivityRows(makeActivityRows(allLedger,allWithdrawals,allDeposits),activityAsset,activityType,activityStatus)
+      if(!rows.length){notify('No matching wallet activity to export');setExporting(false);return}
+      const header=['Date','Asset','Activity','Status','Amount','Available change','Held change','Network','Destination or reference','Details']
+      const body=rows.map(row=>[new Date(row.created_at).toISOString(),row.asset,row.feed_title,row.feed_status,row.amount??'',row.available_delta??'',row.held_delta??'',row.destination_network??'',row.destination??row.reference_note??'',row.feed_note])
+      const csv=[header,...body].map(row=>row.map(csvCell).join(',')).join('\r\n')
+      const url=URL.createObjectURL(new Blob([`\uFEFF${csv}`],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download='usacryptobit-wallet-activity.csv';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify(`Exported ${rows.length} wallet records`)
+    }catch(exportError){setError(`Could not export wallet activity: ${exportError.message}`)}
+    setExporting(false)
   }
   return <section className="wallet-page">
     <div className="admin-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> PERSONAL ACCOUNT</div><h1>Wallet</h1><p>Manage balances, deposits, conversions, and withdrawals.</p></div><button className="admin-refresh" onClick={load}><RefreshCw size={15}/> Refresh</button></div>
-    <div className="wallet-notice"><ShieldCheck size={19}/><span><b>USACryptoBit Wallet</b> — All cryptocurrency balances and transactions represent real digital assets and actual account activity. Each wallet ID is a unique identifier assigned to the corresponding wallet. Deposits, cryptocurrency conversions, and withdrawals are real transactions involving actual cryptocurrency and funds. External wallet addresses can be linked to facilitate cryptocurrency transfers, deposits, and withdrawals. The platform supports real blockchain transactions, allowing users to send, receive, store, and manage their digital assets securely..</span></div>
+    <div className="wallet-notice"><ShieldCheck size={19}/><span><b>USACryptoBit Wallet</b> — All cryptocurrency balances and transactions represent real digital assets and actual account activity. Each wallet ID is a unique identifier assigned to the corresponding wallet. Deposits, cryptocurrency conversions, and withdrawals are real transactions involving actual cryptocurrency and funds. External wallet addresses can be linked to facilitate cryptocurrency transfers, deposits, and withdrawals. The platform supports real blockchain transactions, allowing users to send, receive, store, and manage their digital assets securely.</span></div>
     {accountControl?.status&&accountControl.status!=='active'&&<div className={`account-status-banner account-${accountControl.status}`}><ShieldCheck size={17}/><span>Account {accountControl.status}. Wallet operations require an active account.</span></div>}
     {accountControl?.withdrawals_paused&&<div className="account-status-banner account-restricted"><ShieldCheck size={17}/><span>Withdrawal requests are paused. {accountControl.withdrawal_pause_reason}</span></div>}
     {error&&<div className="admin-error">{error}</div>}
-    <div className="wallet-summary"><span>Total wallet value</span><strong>{usd(totalUsd)}</strong><small>Across {wallets.length} assets</small></div>
+    <div className="wallet-summary"><span>Total wallet value</span><strong>{usd(totalUsd)}</strong><small>Includes available and held balances across {wallets.length} assets</small></div>
     <div className="wallet-asset-tools"><label className="wallet-search"><span>Find asset</span><input value={walletQuery} onChange={e=>setWalletQuery(e.target.value)} placeholder="Search by symbol, e.g. BTC"/></label><label><span>Filter</span><select value={walletFilter} onChange={e=>setWalletFilter(e.target.value)}><option value="all">All assets</option><option value="available">Has available balance</option><option value="held">Has balance on hold</option><option value="external">External address saved</option></select></label><label><span>Sort by</span><select value={walletSort} onChange={e=>setWalletSort(e.target.value)}><option value="asset">Alphabetical</option><option value="available-desc">Available balance: highest</option><option value="available-asc">Available balance: lowest</option><option value="value-desc">USD value: highest</option><option value="held-desc">On hold: highest</option><option value="withdrawals-desc">Most withdrawal requests</option><option value="withdrawn-desc">Withdrawal value (USD): highest</option></select></label><span className="wallet-result-count">{visibleWallets.length} of {wallets.length} assets</span></div>
-    <div className="wallet-grid">{visibleWallets.map(w=>{const external=externalWallets.find(row=>row.asset===w.asset);return <article className="wallet-card" key={w.asset}><div className="wallet-card-top"><span className="wallet-coin-icon">{w.asset.slice(0,1)}</span></div><b>{w.asset}</b><strong>{amount(w.available)}</strong><span>Available balance</span><small>On hold: {amount(w.held)}</small><span className="wallet-id-label">Wallet ID</span><code title="Display ID only">{w.asset}-{w.user_id.replaceAll('-','').slice(0,12).toUpperCase()}</code><small className="wallet-usd-value">{usd(Number(w.available)*Number(prices[w.asset]||0))}</small><form className="external-wallet-form" onSubmit={e=>saveExternalWallet(e,w.asset)}><span>External wallet reference</span><input name="network" aria-label={`${w.asset} network`} required minLength="2" maxLength="40" placeholder="Network (e.g. Ethereum)" defaultValue={external?.network||''}/><input name="address" aria-label={`${w.asset} public address`} required minLength="4" maxLength="200" placeholder="Public wallet address" defaultValue={external?.address||''}/><button type="submit" disabled={busy}>{busy?'Saving…':external?'Update address':'Save address'}</button>{external&&<button type="button" className="external-wallet-remove" disabled={busy} onClick={()=>removeExternalWallet(w.asset)}>Remove</button>}</form></article>})}{!visibleWallets.length&&<div className="wallet-filter-empty">No assets match these search and filter settings.</div>}</div>
+    <div className="wallet-grid">{visibleWallets.map(w=>{const external=externalWallets.find(row=>row.asset===w.asset);const total=Number(w.available||0)+Number(w.held||0);return <article className="wallet-card" key={w.asset}><div className="wallet-card-top"><span className="wallet-coin-icon">{w.asset.slice(0,1)}</span></div><b>{w.asset}</b><strong>{amount(w.available)}</strong><span>Available balance</span><small>On hold: {amount(w.held)}</small><small>Total balance: {amount(total)}</small><span className="wallet-id-label">Wallet ID</span><code title="Display ID only">{w.asset}-{w.user_id.replaceAll('-','').slice(0,12).toUpperCase()}</code><small className="wallet-usd-value">Total value: {usd(total*Number(prices[w.asset]||0))}</small><form className="external-wallet-form" onSubmit={e=>saveExternalWallet(e,w.asset)}><span>External wallet reference</span><input name="network" aria-label={`${w.asset} network`} required minLength="2" maxLength="40" placeholder="Network (e.g. Ethereum)" defaultValue={external?.network||''}/><input name="address" aria-label={`${w.asset} public address`} required minLength="4" maxLength="200" placeholder="Public wallet address" defaultValue={external?.address||''}/><button type="submit" disabled={busy}>{busy?'Saving…':external?'Update address':'Save address'}</button>{external&&<button type="button" className="external-wallet-remove" disabled={busy} onClick={()=>removeExternalWallet(w.asset)}>Remove</button>}</form></article>})}{!visibleWallets.length&&<div className="wallet-filter-empty">No assets match these search and filter settings.</div>}</div>
     <div className="wallet-actions-grid">
       <form className="wallet-form-card" onSubmit={requestDeposit}>
         <div className="section-title"><div><span className="section-eyebrow">ADD FUNDS</span><h3>Deposit</h3></div><Wallet size={19}/></div>
@@ -125,15 +161,17 @@ export default function WalletPanel({coins,currentUser,notify,accountControl}) {
       </form>
       <form className="wallet-form-card" onSubmit={withdraw}>
         <div className="section-title"><div><span className="section-eyebrow">SEND FUNDS</span><h3>Withdraw</h3></div><Wallet size={19}/></div>
-        <label>Asset<select value={withdrawAsset} onChange={e=>{setWithdrawAsset(e.target.value);setDestination(externalWallets.find(row=>row.asset===e.target.value)?.address||'')}}>{ASSETS.map(a=><option key={a}>{a}</option>)}</select></label>
+        <label>Asset<select value={withdrawAsset} onChange={e=>{const linked=externalWallets.find(row=>row.asset===e.target.value);setWithdrawAsset(e.target.value);setDestination(linked?.address||'');setWithdrawNetwork(linked?.network||'')}}>{ASSETS.map(a=><option key={a}>{a}</option>)}</select></label>
         <label>Amount<input type="number" min="0" step="any" required value={withdrawAmount} onChange={e=>setWithdrawAmount(e.target.value)} placeholder="0.00"/></label>
+        <label>Withdrawal network<input required minLength="2" maxLength="40" value={withdrawNetwork} onChange={e=>setWithdrawNetwork(e.target.value)} placeholder="e.g. Ethereum, Solana, Tron"/></label>
         <label>Destination address<input required minLength="4" maxLength="200" value={destination} onChange={e=>setDestination(e.target.value)} placeholder="Enter destination address"/></label>
+        {networkMismatch&&<div className="wallet-network-warning"><ShieldCheck size={15}/>The saved address is for {linkedWithdrawWallet.network}, but this request uses {withdrawNetwork}. Select the saved network to match.</div>}
+        {usesLinkedAddress&&!networkMismatch&&<div className="wallet-network-match">Network matches the saved {linkedWithdrawWallet.network} address reference.</div>}
+        <div className="wallet-hint">Verify that the network label matches the destination and check whether a memo or tag would normally be needed. This request remains simulated.</div>
         <div className="wallet-quote"><span>Request status</span><b>Administrator review</b><small>You'll see status updates in your withdrawal history.</small></div>
-        <button className="submit-btn" disabled={busy||(accountControl?.status!=null&&accountControl.status!=='active')||accountControl?.withdrawals_paused}>{busy?'Processing…':'Request withdrawal →'}</button>
+        <button className="submit-btn" disabled={busy||networkMismatch||(accountControl?.status!=null&&accountControl.status!=='active')||accountControl?.withdrawals_paused}>{busy?'Processing…':'Request withdrawal →'}</button>
       </form>
     </div>
-    <div className="admin-audit wallet-history"><div className="admin-list-heading"><div><span className="section-eyebrow">ACTIVITY</span><h3>Recent wallet activity</h3></div><span className="admin-total">{ledger.length} entries</span></div>{ledger.length?<div className="audit-list">{ledger.map(row=><article key={row.id}><span className="audit-icon"><Clock3 size={15}/></span><div><b>{row.asset} · {activityLabel(row.entry_type)}</b><span>{row.available_delta>0?'+':''}{amount(row.available_delta)} available{row.held_delta?` · ${row.held_delta>0?'+':''}${amount(row.held_delta)} held`:''}</span><small>{activityLabel(row.note)}</small></div><time>{new Date(row.created_at).toLocaleString()}</time></article>)}</div>:<p className="audit-empty">Wallet activity will appear here.</p>}</div>
-    <div className="admin-audit wallet-history"><div className="admin-list-heading"><div><span className="section-eyebrow">DEPOSITS</span><h3>Deposit history</h3></div><span className="admin-total">{deposits.length} requests</span></div>{deposits.length?<div className="audit-list">{deposits.map(row=><article key={row.id}><span className={`status-badge status-${statusClass(row.status)}`}>{row.status}</span><div><b>{amount(row.amount)} {row.asset}</b><span>{row.reference_note||'Deposit request'}</span><small>{row.reason||'Awaiting review'}</small></div><time>{new Date(row.created_at).toLocaleString()}</time></article>)}</div>:<p className="audit-empty">No deposit requests yet.</p>}</div>
-    <div className="admin-audit wallet-history"><div className="admin-list-heading"><div><span className="section-eyebrow">WITHDRAWALS</span><h3>Withdrawal history</h3></div><span className="admin-total">{withdrawals.length} requests</span></div>{withdrawals.length?<div className="audit-list">{withdrawals.map(row=><article key={row.id}><span className={`status-badge status-${statusClass(row.status)}`}>{row.status}</span><div><b>{amount(row.amount)} {row.asset}</b><span>{row.destination}</span><small>{row.reason||'Awaiting review'}</small></div><time>{new Date(row.created_at).toLocaleString()}</time></article>)}</div>:<p className="audit-empty">No withdrawal requests yet.</p>}</div>
+    <div className="admin-audit wallet-history"><div className="admin-list-heading"><div><span className="section-eyebrow">ACTIVITY HISTORY</span><h3>Wallet activity</h3></div><div className="wallet-activity-heading-actions"><span className="admin-total">{visibleActivity.length} shown</span><button className="admin-refresh" type="button" onClick={exportActivity} disabled={exporting}><Download size={14}/>{exporting?'Preparing…':'Export CSV'}</button></div></div><div className="wallet-activity-tools"><label><span>Asset</span><select value={activityAsset} onChange={e=>setActivityAsset(e.target.value)}><option value="all">All assets</option>{ASSETS.map(asset=><option key={asset}>{asset}</option>)}</select></label><label><span>Activity</span><select value={activityType} onChange={e=>setActivityType(e.target.value)}><option value="all">All activity</option><option value="balance">Balance changes</option><option value="deposit">Deposits</option><option value="withdrawal">Withdrawals</option></select></label><label><span>Status</span><select value={activityStatus} onChange={e=>setActivityStatus(e.target.value)}><option value="all">All statuses</option><option value="recorded">Recorded</option><option value="pending">Pending</option><option value="held">Held</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label></div>{visibleActivity.length?<div className="audit-list">{visibleActivity.map(row=><article key={row.feed_id}><span className={`status-badge status-${statusClass(row.feed_status)}`}>{activityLabel(row.feed_status)}</span><div><b>{row.asset} · {row.feed_title}</b><span>{row.feed_detail}</span>{row.feed_note&&<small>{row.feed_note}</small>}</div><time>{new Date(row.created_at).toLocaleString()}</time></article>)}</div>:<p className="audit-empty">No wallet activity matches those filters.</p>}<p className="wallet-activity-footnote">Showing up to 1,000 recent records per activity type. Export CSV downloads all matching records.</p></div>
   </section>
 }
