@@ -4,9 +4,14 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
+  phone_number text check (phone_number is null or char_length(phone_number) between 7 and 20),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists phone_number text;
+alter table public.profiles drop constraint if exists profiles_phone_number_check;
+alter table public.profiles add constraint profiles_phone_number_check
+  check (phone_number is null or char_length(phone_number) between 7 and 20);
 
 create table if not exists public.watchlist (
   id uuid primary key default gen_random_uuid(),
