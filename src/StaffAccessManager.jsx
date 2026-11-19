@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Shield, UserPlus, UserRoundCog } from 'lucide-react'
 import { supabase } from './supabase'
+import './staffAccess.css'
 
 const PERMISSIONS=[
   {id:'customer_access',title:'Customer access',description:'Restrict, suspend, and restore assigned customer accounts.'},
@@ -35,9 +36,10 @@ export default function StaffAccessManager({users=[],notify,onSaved}){
   }
 
   return <section className="staff-access-card">
-    <div className="admin-list-heading"><div><span className="section-eyebrow">STAFF ACCESS</span><h3>Choose staff tasks and customers</h3></div><span className="staff-access-badge"><Shield size={13}/> Main admin only</span></div>
-    <p className="staff-access-intro">A staff account must sign up on the site first. Select that account, choose its allowed tasks, then select the customer accounts it may handle. Staff cannot grant access or reset wallets.</p>
+    <header className="staff-access-header"><div><span className="section-eyebrow">STAFF ACCESS</span><h3>Choose staff tasks and customers</h3><p>Set each staff member’s permissions and the customer accounts they can handle.</p></div><span className="staff-access-badge"><Shield size={14} aria-hidden="true"/>ADMIN ONLY</span></header>
+    <div className="staff-access-instructions"><UserRoundCog size={18} aria-hidden="true"/><div><b>How staff access works</b><p>Staff members must register first. Select their account, grant only the permissions they need, then assign the customers they may handle. Only administrators can manage staff access.</p></div></div>
     <label className="admin-field staff-account-select">Staff account<select value={accountId} onChange={event=>setAccountId(event.target.value)}><option value="">Choose a registered account…</option><optgroup label="Customer accounts to promote">{accounts.filter(user=>user.role==='customer').map(user=><option key={user.id} value={user.id}>{user.email}</option>)}</optgroup><optgroup label="Current staff">{accounts.filter(user=>user.role==='staff').map(user=><option key={user.id} value={user.id}>{user.email}</option>)}</optgroup></select></label>
+    {!selected&&<div className="staff-access-empty">Select an account to configure staff tasks and customer assignments.</div>}
     {selected&&<>
       <div className="staff-access-section-title"><UserRoundCog size={15}/> Allowed tasks</div>
       <div className="staff-permission-grid">{PERMISSIONS.map(permission=><label className="staff-permission-option" key={permission.id}><input type="checkbox" checked={permissions.includes(permission.id)} onChange={()=>toggle(permissions,setPermissions,permission.id)}/><span><b>{permission.title}</b><small>{permission.description}</small></span></label>)}</div>
