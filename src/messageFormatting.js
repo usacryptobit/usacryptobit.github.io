@@ -38,7 +38,16 @@ function safeStyles(element){
   const alignment=style.getPropertyValue('text-align').toLowerCase()
   if(['left','right','center','justify'].includes(alignment))set('text-align',alignment)
   const lineHeight=style.getPropertyValue('line-height').trim()
-  if(/^(normal|\d+(?:\.\d+)?(?:px|pt|em|rem|%)?)$/i.test(lineHeight))set('line-height',lineHeight)
+  if(lineHeight.toLowerCase()==='normal')set('line-height','normal')
+  else if(/^\d+(?:\.\d+)?$/i.test(lineHeight)&&Number(lineHeight)<=2.5)set('line-height',lineHeight)
+  else {
+    const lineHeightMatch=lineHeight.match(/^(\d+(?:\.\d+)?)(px|pt|em|rem|%)$/i)
+    if(lineHeightMatch){
+      const amount=Number(lineHeightMatch[1]),unit=lineHeightMatch[2].toLowerCase()
+      const max=unit==='px'?48:unit==='pt'?36:unit==='%'?250:2.5
+      if(amount<=max)set('line-height',lineHeight)
+    }
+  }
   const weight=style.getPropertyValue('font-weight').toLowerCase()
   if(weight==='bold'||Number(weight)>=600)set('font-weight','bold')
   const fontStyle=style.getPropertyValue('font-style').toLowerCase()
@@ -60,6 +69,7 @@ function cleanNode(node){
   if(node.nodeType!==Node.ELEMENT_NODE)return ''
   const tag=node.tagName.toLowerCase()
   if(blockedTags.has(tag))return ''
+  if(['p','div'].includes(tag)&&!(node.textContent||'').replace(/[\s\u00a0]/g,'')&&!node.querySelector('img,video,audio'))return ''
   const children=[...node.childNodes].map(cleanNode).join('')
   if(tag==='font')return `<span${safeStyles(node)?` style="${escapeHtml(safeStyles(node))}"`:''}>${children}</span>`
   if(!allowedTags.has(tag))return children
